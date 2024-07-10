@@ -9,13 +9,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chewycrunch/shopify-monitor/shopify"
+	"github.com/chewycrunch/shopify-monitor/services"
 )
 
 // Fetch variants and load them into the map
 
 // Compare variants to the map, see if any availabilty has changed, or new variants exist
 // If so, send a webhook to the webhook URL
+var wg sync.WaitGroup
 
 type Config struct {
 	Delay int `json:"delay"`
@@ -54,10 +55,8 @@ func init() {
 	config = inconfig
 }
 
-// Read config/websites.csv
-func main() {
-	log.Println("Welcome to the Shopify Monitor")
-
+func startMonitorService(wg *sync.WaitGroup, pb *services.ProxyBroker) {
+	defer wg.Done()
 	file, err := os.Open("config/websites.csv")
 	if err != nil {
 		log.Fatal(err)
@@ -71,8 +70,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var wg sync.WaitGroup
-
 	// Process each website
 	for {
 		record, err := reader.Read()
@@ -83,8 +80,6 @@ func main() {
 			log.Fatal(err)
 		}
 
-		log.Printf("Starting %v", record[0])
-
 		websiteURL := record[0]
 		webhookURL := record[1]
 
@@ -94,12 +89,33 @@ func main() {
 		// Start a goroutine for each website
 		go func() {
 			defer wg.Done()
-			monitor := shopify.NewMonitor(websiteURL, webhookURL)
+			monitor := services.NewMonitor(websiteURL, webhookURL, pb)
 			monitor.InitializeVariants()
 			monitor.StartWatching(time.Duration(config.Delay) * time.Millisecond)
 		}()
-	}
 
-	// Wait for all goroutines to finish
+	}
+}
+
+// Read config/websites.csv
+func main() {
+	log.Println("Welcome to the Shopify Monitor")
+
+	// Initialize the proxy manager once and share it
+	proxyFile, err := os.Open("config/proxies.txt")
+	if err != nil {
+		log.Fatalf("Failed to open proxy file: %v", err)
+	}
+	defer proxyFile.Close()
+
+	shopifyProxyBroker := services.NewProxyManager(50)
+	shopifyProxyBroker.LoadProxiesFromFile(proxyFile)
+
+	webhookProxyBroker := services.NewProxyManager(50)
+	webhookProxyBroker.LoadProxiesFromFile(proxyFile)
+
+	wg.Add(1)
+	go startMonitorService(&wg, shopifyProxyBroker)
+
 	wg.Wait()
 }
