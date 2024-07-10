@@ -1,0 +1,6 @@
+proxy1.example.com:8080
+proxy2.example.com:8080
+proxy3.example.com:8080
+proxy4.example.com:8080:user1:pass1
+proxy5.example.com:8080:user1:pass1
+proxy6.example.com:8080:user1:pass1
