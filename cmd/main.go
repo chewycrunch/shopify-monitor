@@ -55,7 +55,7 @@ func init() {
 	config = inconfig
 }
 
-func startMonitorService(wg *sync.WaitGroup, pb *services.ProxyBroker) {
+func startMonitorService(wg *sync.WaitGroup, proxyManager *services.ProxyManager) {
 	defer wg.Done()
 	file, err := os.Open("config/websites.csv")
 	if err != nil {
@@ -89,7 +89,7 @@ func startMonitorService(wg *sync.WaitGroup, pb *services.ProxyBroker) {
 		// Start a goroutine for each website
 		go func() {
 			defer wg.Done()
-			monitor := services.NewMonitor(websiteURL, webhookURL, pb)
+			monitor := services.NewMonitor(websiteURL, webhookURL, proxyManager)
 			monitor.InitializeVariants()
 			monitor.StartWatching(time.Duration(config.Delay) * time.Millisecond)
 		}()

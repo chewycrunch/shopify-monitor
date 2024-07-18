@@ -18,10 +18,10 @@ type Monitor struct {
 	VariantMap map[int64]bool
 
 	client      *http.Client
-	proxyBroker *ProxyBroker
+	proxyBroker *ProxyManager
 }
 
-func NewMonitor(url string, webhookUrl string, pb *ProxyBroker) *Monitor {
+func NewMonitor(url string, webhookUrl string, pb *ProxyManager) *Monitor {
 	log.Printf("%v | Creating monitor", url)
 	return &Monitor{Url: url, WebhookUrl: webhookUrl, VariantMap: make(map[int64]bool), client: &http.Client{}, proxyBroker: pb}
 }

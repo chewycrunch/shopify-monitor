@@ -14,21 +14,21 @@ type Proxy struct {
 	Pass string
 }
 
-type ProxyBroker struct {
+type ProxyManager struct {
 	proxies []Proxy
 	start   int
 	size    int
 }
 
-func NewProxyManager(initialCapacity int) *ProxyBroker {
-	return &ProxyBroker{
+func NewProxyManager(initialCapacity int) *ProxyManager {
+	return &ProxyManager{
 		proxies: make([]Proxy, 0, initialCapacity),
 		start:   0,
 		size:    0,
 	}
 }
 
-func (pm *ProxyBroker) LoadProxiesFromFile(file *os.File) error {
+func (pm *ProxyManager) LoadProxiesFromFile(file *os.File) error {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		proxyStr := scanner.Text()
@@ -43,12 +43,12 @@ func (pm *ProxyBroker) LoadProxiesFromFile(file *os.File) error {
 	return nil
 }
 
-func (pm *ProxyBroker) addProxy(proxy Proxy) {
+func (pm *ProxyManager) addProxy(proxy Proxy) {
 	pm.proxies = append(pm.proxies, proxy)
 	pm.size++
 }
 
-func (pm *ProxyBroker) GetProxy() (Proxy, error) {
+func (pm *ProxyManager) GetProxy() (Proxy, error) {
 	if pm.size == 0 {
 		return Proxy{}, fmt.Errorf("no proxies available")
 	}

@@ -4,6 +4,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+
+	"github.com/chewycrunch/shopify-monitor/services"
 )
 
 // Webhook sender, rescheduler
@@ -11,15 +13,15 @@ var Webhook *WebhookManager
 
 func init() {
 	// Load init
-	Webhook = NewWebhookManager(NewProxyManager(10))
+	Webhook = NewWebhookManager(services.NewProxyManager(10))
 }
 
 type WebhookManager struct {
 	client      *http.Client
-	proxyBroker *ProxyBroker
+	proxyBroker *services.ProxyManager
 }
 
-func NewWebhookManager(pb *ProxyBroker) *WebhookManager {
+func NewWebhookManager(pb *services.ProxyManager) *WebhookManager {
 	return &WebhookManager{client: &http.Client{}, proxyBroker: pb}
 }
 
