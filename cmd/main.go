@@ -9,7 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chewycrunch/shopify-monitor/services"
+	"github.com/chewycrunch/shopify-monitor/monitor"
+	"github.com/chewycrunch/shopify-monitor/proxy"
 )
 
 // Fetch variants and load them into the map
@@ -55,7 +56,7 @@ func init() {
 	config = inconfig
 }
 
-func startMonitorService(wg *sync.WaitGroup, proxyManager *services.ProxyManager) {
+func startMonitorService(wg *sync.WaitGroup, proxyManager *proxy.ProxyManager) {
 	defer wg.Done()
 	file, err := os.Open("config/websites.csv")
 	if err != nil {
@@ -89,7 +90,7 @@ func startMonitorService(wg *sync.WaitGroup, proxyManager *services.ProxyManager
 		// Start a goroutine for each website
 		go func() {
 			defer wg.Done()
-			monitor := services.NewMonitor(websiteURL, webhookURL, proxyManager)
+			monitor := monitor.NewMonitor(websiteURL, webhookURL, proxyManager)
 			monitor.InitializeVariants()
 			monitor.StartWatching(time.Duration(config.Delay) * time.Millisecond)
 		}()
@@ -108,10 +109,10 @@ func main() {
 	}
 	defer proxyFile.Close()
 
-	shopifyProxyBroker := services.NewProxyManager(50)
+	shopifyProxyBroker := proxy.NewProxyManager(50)
 	shopifyProxyBroker.LoadProxiesFromFile(proxyFile)
 
-	webhookProxyBroker := services.NewProxyManager(50)
+	webhookProxyBroker := proxy.NewProxyManager(50)
 	webhookProxyBroker.LoadProxiesFromFile(proxyFile)
 
 	wg.Add(1)

@@ -1,11 +1,11 @@
-package services
+package webhook
 
 import (
 	"log"
 	"net/http"
 	"net/url"
 
-	"github.com/chewycrunch/shopify-monitor/services"
+	"github.com/chewycrunch/shopify-monitor/proxy"
 )
 
 // Webhook sender, rescheduler
@@ -13,19 +13,19 @@ var Webhook *WebhookManager
 
 func init() {
 	// Load init
-	Webhook = NewWebhookManager(services.NewProxyManager(10))
+	Webhook = NewWebhookManager(proxy.NewProxyManager(10))
 }
 
 type WebhookManager struct {
 	client      *http.Client
-	proxyBroker *services.ProxyManager
+	proxyBroker *proxy.ProxyManager
 }
 
-func NewWebhookManager(pb *services.ProxyManager) *WebhookManager {
+func NewWebhookManager(pb *proxy.ProxyManager) *WebhookManager {
 	return &WebhookManager{client: &http.Client{}, proxyBroker: pb}
 }
 
-func (webhook *WebhookManager) SendWebhook(url string) {
+func (webhook *WebhookManager) SendWebhook(url string, status string) {
 	webhook.rotateClient()
 	// Now send
 	// Send a webhook to the webhook URL

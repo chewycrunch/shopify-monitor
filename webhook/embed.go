@@ -1,4 +1,4 @@
-package services
+package webhook
 
 import (
 	"encoding/json"

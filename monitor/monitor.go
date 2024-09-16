@@ -1,4 +1,4 @@
-package services
+package monitor
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/chewycrunch/shopify-monitor/proxy"
 	"github.com/chewycrunch/shopify-monitor/utils"
 )
 
@@ -18,10 +19,10 @@ type Monitor struct {
 	VariantMap map[int64]bool
 
 	client      *http.Client
-	proxyBroker *ProxyManager
+	proxyBroker *proxy.ProxyManager
 }
 
-func NewMonitor(url string, webhookUrl string, pb *ProxyManager) *Monitor {
+func NewMonitor(url string, webhookUrl string, pb *proxy.ProxyManager) *Monitor {
 	log.Printf("%v | Creating monitor", url)
 	return &Monitor{Url: url, WebhookUrl: webhookUrl, VariantMap: make(map[int64]bool), client: &http.Client{}, proxyBroker: pb}
 }

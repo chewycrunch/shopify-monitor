@@ -1,4 +1,4 @@
-package services
+package webhook
 
 type Payload struct {
 	Content     *string    `json:"content"`
@@ -7,7 +7,7 @@ type Payload struct {
 }
 
 // NewPayload creates a new Payload object
-func newPayload() *Payload {
+func NewPayload() *Payload {
 	return &Payload{}
 }
 
