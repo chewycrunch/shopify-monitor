@@ -11,6 +11,7 @@ import (
 
 	"github.com/chewycrunch/shopify-monitor/proxy"
 	"github.com/chewycrunch/shopify-monitor/utils"
+	"github.com/chewycrunch/shopify-monitor/webhook"
 )
 
 type Monitor struct {
@@ -68,15 +69,17 @@ func (m *Monitor) StartWatching(duration time.Duration) error {
 				// Check if variant is in map
 				_, ok := m.VariantMap[variant.ID]
 				if !ok {
-					// Variant is not in map (NEW VARIANT), send webhook
-					// SendWebhook()
 					m.VariantMap[variant.ID] = variant.Available
+
+					// Variant is not in map (NEW VARIANT), send webhook
+					webhook.WebhookMaster.SendNewVariant()
 				} else {
 					// Variant is in map, check if availability has changed
-					if m.VariantMap[variant.ID] != variant.Available {
-						// Availability has changed, send webhook
-						// SendWebhook()
+					if m.VariantMap[variant.ID] != variant.Available && variant.Available {
 						m.VariantMap[variant.ID] = variant.Available
+
+						webhook.WebhookMaster.SendVariantAvail()
+						// Availability has changed to true, send webhook
 					}
 				}
 			}

@@ -9,11 +9,11 @@ import (
 )
 
 // Webhook sender, rescheduler
-var Webhook *WebhookManager
+var WebhookMaster *WebhookManager
 
 func init() {
 	// Load init
-	Webhook = NewWebhookManager(proxy.NewProxyManager(10))
+	WebhookMaster = NewWebhookManager(proxy.NewProxyManager(10))
 }
 
 type WebhookManager struct {
@@ -25,11 +25,20 @@ func NewWebhookManager(pb *proxy.ProxyManager) *WebhookManager {
 	return &WebhookManager{client: &http.Client{}, proxyBroker: pb}
 }
 
-func (webhook *WebhookManager) SendWebhook(url string, status string) {
-	webhook.rotateClient()
-	// Now send
-	// Send a webhook to the webhook URL
+func (webhook *WebhookManager) SendNewVariant() {
+
 }
+
+func (webhook *WebhookManager) SendVariantAvail() {
+
+}
+
+// func (webhook *WebhookManager) SendWebhook(url string, status string) {
+// 	webhook.rotateClient()
+// 	// Now send
+// 	webhook.client.Post(url, "application/json", nil)
+// 	// Send a webhook to the webhook URL
+// }
 
 // Rotate proxy client (fallback to local client if no proxies available)
 func (webhook *WebhookManager) rotateClient() {
