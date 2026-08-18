@@ -9,9 +9,9 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/chewycrunch/shopify-monitor/internal/webhook"
 	"github.com/chewycrunch/shopify-monitor/internal/proxy"
 	"github.com/chewycrunch/shopify-monitor/internal/utils"
-	"github.com/chewycrunch/shopify-monitor/webhook"
 )
 
 type Monitor struct {

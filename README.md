@@ -5,24 +5,18 @@ Concurrent Go monitor for Shopify stores. Polls `/products.json`, diffs variant 
 ## Quick Start
 
 ```bash
-go run ./cmd/main.go
+MONITOR_DELAY=2500 go run ./cmd/main.go
 ```
 
 ## Configuration
 
-All config lives in [config/](config/). Three files are required.
+All config lives in [config/](config/).
 
-### config/config.json — Timing
+### MONITOR_DELAY — Timing
 
-```json
-{
-  "delay": 2500
-}
-```
-
-| Field   | Type     | Description                                           |
-| ------- | -------- | ----------------------------------------------------- |
-| `delay` | int (ms) | Pause between polling cycles. Recommended: 2000–5000  |
+| Env var         | Type     | Description                                          |
+| --------------- | -------- | ---------------------------------------------------- |
+| `MONITOR_DELAY` | int (ms) | Pause between polling cycles. Recommended: 2000–5000 |
 
 ---
 

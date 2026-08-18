@@ -2,13 +2,13 @@ package main
 
 import (
 	"encoding/csv"
-	"encoding/json"
 	"io"
 	"log"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/chewycrunch/shopify-monitor/internal/config"
 	"github.com/chewycrunch/shopify-monitor/internal/monitor"
 	"github.com/chewycrunch/shopify-monitor/internal/proxy"
 )
@@ -19,44 +19,7 @@ import (
 // If so, send a webhook to the webhook URL
 var wg sync.WaitGroup
 
-type Config struct {
-	Delay int `json:"delay"`
-}
-
-var config Config
-
-func loadConfig() (Config, error) {
-
-	// Read the config file
-	file, err := os.Open("config/config.json")
-	if err != nil {
-		return config, err
-	}
-
-	// Parse the JSON config
-	// Read the contents of the file into a byte slice
-	fileBytes, err := io.ReadAll(file)
-	if err != nil {
-		return config, err
-	}
-
-	// Parse the JSON config
-	err = json.Unmarshal(fileBytes, &config)
-	if err != nil {
-		return config, err
-	}
-	return config, nil
-}
-
-func init() {
-	inconfig, err := loadConfig()
-	if err != nil {
-		log.Fatal(err)
-	}
-	config = inconfig
-}
-
-func startMonitorService(wg *sync.WaitGroup, proxyManager *proxy.ProxyManager) {
+func startMonitorService(wg *sync.WaitGroup, cfg config.Config, proxyManager *proxy.ProxyManager) {
 	defer wg.Done()
 	file, err := os.Open("config/websites.csv")
 	if err != nil {
@@ -92,7 +55,7 @@ func startMonitorService(wg *sync.WaitGroup, proxyManager *proxy.ProxyManager) {
 			defer wg.Done()
 			monitor := monitor.NewMonitor(websiteURL, webhookURL, proxyManager)
 			monitor.InitializeVariants()
-			monitor.StartWatching(time.Duration(config.Delay) * time.Millisecond)
+			monitor.StartWatching(time.Duration(cfg.Delay) * time.Millisecond)
 		}()
 
 	}
@@ -101,6 +64,11 @@ func startMonitorService(wg *sync.WaitGroup, proxyManager *proxy.ProxyManager) {
 // Read config/websites.csv
 func main() {
 	log.Println("Welcome to the Shopify Monitor")
+
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Initialize the proxy manager once and share it
 	proxyFile, err := os.Open("config/proxies.txt")
@@ -113,7 +81,7 @@ func main() {
 	shopifyProxyBroker.LoadProxiesFromFile(proxyFile)
 
 	wg.Add(1)
-	go startMonitorService(&wg, shopifyProxyBroker)
+	go startMonitorService(&wg, cfg, shopifyProxyBroker)
 
 	wg.Wait()
 }
