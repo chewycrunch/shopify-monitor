@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/chewycrunch/shopify-monitor/proxy"
+	"github.com/chewycrunch/shopify-monitor/internal/proxy"
 )
 
 // Webhook sender, rescheduler

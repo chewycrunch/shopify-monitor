@@ -112,9 +112,6 @@ func main() {
 	shopifyProxyBroker := proxy.NewProxyManager(50)
 	shopifyProxyBroker.LoadProxiesFromFile(proxyFile)
 
-	webhookProxyBroker := proxy.NewProxyManager(50)
-	webhookProxyBroker.LoadProxiesFromFile(proxyFile)
-
 	wg.Add(1)
 	go startMonitorService(&wg, shopifyProxyBroker)
 
