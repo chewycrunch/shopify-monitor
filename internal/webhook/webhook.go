@@ -1,7 +1,7 @@
 package webhook
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 
@@ -9,6 +9,9 @@ import (
 )
 
 // Webhook sender, rescheduler
+//
+// Built in init(), which runs before main can call slog.SetDefault, so this
+// package calls slog directly rather than binding a logger on the manager.
 var WebhookMaster *WebhookManager
 
 func init() {
@@ -41,16 +44,19 @@ func (webhook *WebhookManager) SendVariantAvail() {
 // }
 
 // Rotate proxy client (fallback to local client if no proxies available)
+// Unused until SendWebhook above is implemented.
+//
+//nolint:unused
 func (webhook *WebhookManager) rotateClient() {
 	proxy, err := webhook.proxyBroker.GetProxy()
 	if err != nil {
-		log.Printf("Failed to get proxy for webhook: %v", err)
+		slog.Warn("failed to get proxy, using local client", "component", "webhook", "err", err)
 		webhook.useLocalClient()
 		return
 	}
 	proxyUrl, err := url.Parse(proxy.Stringify())
 	if err != nil {
-		log.Printf("Failed to parse proxy URL for: %v", err)
+		slog.Warn("failed to parse proxy url, using local client", "component", "webhook", "err", err)
 		webhook.useLocalClient()
 		return
 	}
@@ -64,6 +70,8 @@ func (webhook *WebhookManager) rotateClient() {
 }
 
 // Use local client
+//
+//nolint:unused
 func (webhook *WebhookManager) useLocalClient() {
 	webhook.client = &http.Client{}
 }
