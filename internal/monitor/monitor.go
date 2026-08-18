@@ -1,17 +1,18 @@
 package monitor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
 
-	"github.com/chewycrunch/shopify-monitor/internal/webhook"
 	"github.com/chewycrunch/shopify-monitor/internal/proxy"
 	"github.com/chewycrunch/shopify-monitor/internal/utils"
+	"github.com/chewycrunch/shopify-monitor/internal/webhook"
 )
 
 type Monitor struct {
@@ -21,21 +22,23 @@ type Monitor struct {
 
 	client      *http.Client
 	proxyBroker *proxy.ProxyManager
+	log         *slog.Logger
 }
 
 func NewMonitor(url string, webhookUrl string, pb *proxy.ProxyManager) *Monitor {
-	log.Printf("%v | Creating monitor", url)
-	return &Monitor{Url: url, WebhookUrl: webhookUrl, VariantMap: make(map[int64]bool), client: &http.Client{}, proxyBroker: pb}
+	// Bound once here so every line this monitor logs carries its site.
+	log := slog.Default().With("site", url)
+	log.Info("creating monitor")
+	return &Monitor{Url: url, WebhookUrl: webhookUrl, VariantMap: make(map[int64]bool), client: &http.Client{}, proxyBroker: pb, log: log}
 }
 
 // Initialize variants for the monitor
-func (m *Monitor) InitializeVariants() error {
-	log.Printf("%v | Initializing variants", m.Url)
+func (m *Monitor) InitializeVariants(ctx context.Context) error {
+	m.log.Info("initializing variants")
 	// Fetch variants and load them into the map
 	m.rotateClient()
-	res, err := FetchProductData(m.Url, m.client)
+	res, err := FetchProductData(ctx, m.Url, m.client)
 	if err != nil {
-		log.Printf("Failed to fetch product data for %s: %v", m.Url, err)
 		return err
 	}
 
@@ -47,19 +50,19 @@ func (m *Monitor) InitializeVariants() error {
 		}
 	}
 
-	log.Printf("%v | Initialized %d variants", m.Url, counter)
+	m.log.Info("initialized variants", "count", counter)
 
 	return nil
 }
 
 // Start monitoring the site
-func (m *Monitor) StartWatching(duration time.Duration) error {
+func (m *Monitor) StartWatching(ctx context.Context, duration time.Duration) error {
 	time.Sleep(duration)
 
 	for {
-		log.Printf("%v | Refreshing", m.Url)
+		m.log.Info("refreshing")
 		m.rotateClient()
-		res, err := FetchProductData(m.Url, m.client)
+		res, err := FetchProductData(ctx, m.Url, m.client)
 		if err != nil {
 			return err
 		}
@@ -73,14 +76,12 @@ func (m *Monitor) StartWatching(duration time.Duration) error {
 
 					// Variant is not in map (NEW VARIANT), send webhook
 					webhook.WebhookMaster.SendNewVariant()
-				} else {
-					// Variant is in map, check if availability has changed
-					if m.VariantMap[variant.ID] != variant.Available && variant.Available {
-						m.VariantMap[variant.ID] = variant.Available
+				} else if m.VariantMap[variant.ID] != variant.Available && variant.Available {
+					// Variant is in map and availability has changed to true,
+					// send webhook
+					m.VariantMap[variant.ID] = variant.Available
 
-						webhook.WebhookMaster.SendVariantAvail()
-						// Availability has changed to true, send webhook
-					}
+					webhook.WebhookMaster.SendVariantAvail()
 				}
 			}
 		}
@@ -93,13 +94,13 @@ func (m *Monitor) StartWatching(duration time.Duration) error {
 func (m *Monitor) rotateClient() {
 	proxy, err := m.proxyBroker.GetProxy()
 	if err != nil {
-		log.Printf("Failed to get proxy for %s: %v", m.Url, err)
+		m.log.Warn("failed to get proxy, using local client", "err", err)
 		m.useLocalClient()
 		return
 	}
 	proxyUrl, err := url.Parse(proxy.Stringify())
 	if err != nil {
-		log.Printf("Failed to parse proxy URL for %s: %v", m.Url, err)
+		m.log.Warn("failed to parse proxy url, using local client", "err", err)
 		m.useLocalClient()
 		return
 	}
@@ -117,8 +118,8 @@ func (m *Monitor) useLocalClient() {
 	m.client = &http.Client{}
 }
 
-func FetchProductData(shopifyBaseUrl string, client *http.Client) ([]utils.Product, error) {
-	req, err := http.NewRequest("GET", shopifyBaseUrl+"/products.json", nil)
+func FetchProductData(ctx context.Context, shopifyBaseUrl string, client *http.Client) ([]utils.Product, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, shopifyBaseUrl+"/products.json", nil)
 	if err != nil {
 		return nil, err
 	}

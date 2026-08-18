@@ -1,0 +1,51 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+issues:
+  # Two linters often flag the same line for different reasons; hiding the
+  # second one hides real findings in a codebase whose weak spot is exactly
+  # this (discarded errors on lines that also lack a context).
+  uniq-by-line: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  default: standard
+  enable:
+    - bodyclose # every GitHub and Discord response body must be closed
+    - errcheck # unchecked errors are the dominant defect class in this repo
+    - errorlint # error comparisons should use errors.Is / errors.As
+    - gocritic
+    - misspell
+    - noctx # HTTP requests should carry a context
+    - revive
+    - unconvert
+    - unparam
+    - usestdlibvars # http.StatusNoContent rather than the literal 204
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true # `x, _ := f()` hides the failures this service cares about
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+  settings:
+    goimports:
+      local-prefixes:
+        - shopify-monitor
