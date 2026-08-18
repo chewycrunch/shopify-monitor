@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chewycrunch/shopify-monitor/monitor"
-	"github.com/chewycrunch/shopify-monitor/proxy"
+	"github.com/chewycrunch/shopify-monitor/internal/monitor"
+	"github.com/chewycrunch/shopify-monitor/internal/proxy"
 )
 
 // Fetch variants and load them into the map
@@ -111,9 +111,6 @@ func main() {
 
 	shopifyProxyBroker := proxy.NewProxyManager(50)
 	shopifyProxyBroker.LoadProxiesFromFile(proxyFile)
-
-	webhookProxyBroker := proxy.NewProxyManager(50)
-	webhookProxyBroker.LoadProxiesFromFile(proxyFile)
 
 	wg.Add(1)
 	go startMonitorService(&wg, shopifyProxyBroker)
