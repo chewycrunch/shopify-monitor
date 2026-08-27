@@ -2,7 +2,11 @@
 # BUILDPLATFORM is the host's own platform, and Go cross-compiles to the target
 # by setting GOARCH. Letting the builder stage run as the *target* platform
 # instead would drag every compile through QEMU for no benefit.
-FROM --platform=$BUILDPLATFORM golang:alpine AS builder
+# Pinned rather than floating on :alpine so a rebuild cannot silently change
+# toolchains, and so Renovate has a version to raise a PR against. This is the
+# current stable Go, not go.mod's `go 1.23.0` — that directive is the minimum
+# language version the source needs, not the compiler that has to build it.
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
 
 # Supplied by buildx, one value per platform being built.
 ARG TARGETOS
@@ -24,7 +28,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
 
 # ─────────────────────────────────────────────────────────────
 
-FROM alpine:latest
+FROM alpine:3.24
 
 RUN apk --no-cache add ca-certificates tzdata
 
