@@ -1,0 +1,53 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommitsDisabled"],
+  "labels": ["dependencies"],
+  "schedule": ["after 8am and before 9am"],
+  "timezone": "America/New_York",
+  "prConcurrentLimit": 3,
+  "minimumReleaseAge": "3 days",
+  "postUpdateOptions": ["gomodTidy"],
+  "packageRules": [
+    {
+      "description": "One PR for routine Go bumps; the pre-commit checks gate them all together.",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "go modules"
+    },
+    {
+      "description": "Majors land alone so a breaking change is never bundled with routine bumps.",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "The go directive is a floor for the whole build, not a dependency bump.",
+      "matchDepTypes": ["golang"],
+      "dependencyDashboardApproval": true,
+      "groupName": "go toolchain"
+    },
+    {
+      "description": "The builder image is the compiler itself; moving it is a toolchain decision, so it goes to the dashboard rather than opening a PR on its own.",
+      "matchManagers": ["dockerfile"],
+      "matchDepNames": ["golang"],
+      "dependencyDashboardApproval": true,
+      "groupName": "go toolchain"
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "Taskfile pins the golangci-lint binary version, which no built-in manager reads.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^Taskfile\\.yml$/"],
+      "matchStrings": ["GOLANGCI_VERSION:\\s*(?<currentValue>v[\\d.]+)"],
+      "depNameTemplate": "golangci/golangci-lint",
+      "datasourceTemplate": "github-releases"
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "labels": ["dependencies", "security"],
+    "minimumReleaseAge": null,
+    "schedule": []
+  },
+  "osvVulnerabilityAlerts": true
+}
