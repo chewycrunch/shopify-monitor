@@ -32,6 +32,11 @@
       "matchDepNames": ["golang"],
       "dependencyDashboardApproval": true,
       "groupName": "go toolchain"
+    },
+    {
+      "description": "Actions churn constantly and are low-risk; one PR keeps them out of the way.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
     }
   ],
   "customManagers": [

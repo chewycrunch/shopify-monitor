@@ -4,6 +4,10 @@ import "github.com/ardanlabs/conf/v3"
 
 const prefix = "MONITOR"
 
+// Build identifies the running binary. Overwritten at link time by the
+// Dockerfile's -X flag; "develop" is what a `go build` with no ldflags reports.
+var Build = "develop"
+
 // Config holds the runtime settings for the monitor.
 type Config struct {
 	Delay int `conf:"default:2500,help:pause between polling cycles in milliseconds"`

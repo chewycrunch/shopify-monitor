@@ -87,7 +87,7 @@ func main() {
 }
 
 func run() error {
-	slog.Info("welcome to the shopify monitor")
+	slog.Info("welcome to the shopify monitor", "build", config.Build)
 
 	cfg, err := config.Load()
 	if err != nil {

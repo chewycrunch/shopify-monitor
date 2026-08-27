@@ -24,11 +24,16 @@ RUN go mod download && go mod verify
 
 COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -ldflags="-s -w -X shopify-monitor/internal/config.Build=${BUILD}" -o app .
+    go build -ldflags="-s -w -X github.com/chewycrunch/shopify-monitor/internal/config.Build=${BUILD}" -o app .
 
 # ─────────────────────────────────────────────────────────────
 
 FROM alpine:3.24
+
+# What links the published package to this repo on GHCR and makes the package
+# page's "Source" link resolve. metadata-action sets the same label in CI; this
+# covers images built by hand from a laptop.
+LABEL org.opencontainers.image.source="https://github.com/chewycrunch/shopify-monitor"
 
 RUN apk --no-cache add ca-certificates tzdata
 
