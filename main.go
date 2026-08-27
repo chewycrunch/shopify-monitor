@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ardanlabs/conf/v3"
 	"github.com/chewycrunch/shopify-monitor/internal/config"
 	"github.com/chewycrunch/shopify-monitor/internal/monitor"
 	"github.com/chewycrunch/shopify-monitor/internal/proxy"
@@ -22,10 +23,10 @@ import (
 // If so, send a webhook to the webhook URL
 var wg sync.WaitGroup
 
-// Spawns one monitor goroutine per website in config/websites.csv and returns;
+// Spawns one monitor goroutine per website in cfg.WebsitesFile and returns;
 // the goroutines it starts are tracked on wg.
 func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Config, proxyManager *proxy.ProxyManager) error {
-	file, err := os.Open("config/websites.csv")
+	file, err := os.Open(cfg.WebsitesFile)
 	if err != nil {
 		return fmt.Errorf("open websites file: %w", err)
 	}
@@ -72,7 +73,28 @@ func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Con
 	return nil
 }
 
-// Read config/websites.csv
+// loadProxies reads path into a ProxyManager. A missing file yields an empty
+// manager rather than an error — monitors then run over direct connections.
+func loadProxies(path string) (*proxy.ProxyManager, error) {
+	pm := proxy.NewProxyManager(50)
+
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			slog.Warn("no proxy file, using direct connections", "path", path)
+			return pm, nil
+		}
+		return nil, fmt.Errorf("open proxy file: %w", err)
+	}
+	defer file.Close()
+
+	if err := pm.LoadProxiesFromFile(file); err != nil {
+		return nil, fmt.Errorf("load proxies: %w", err)
+	}
+
+	return pm, nil
+}
+
 func main() {
 	// Set before anything else logs. Packages that build loggers in their own
 	// init() would capture the pre-default handler, so they call slog directly.
@@ -81,6 +103,10 @@ func main() {
 	// Kept free of defers so the exit path below is the only one: gocritic's
 	// exitAfterDefer catches an exit that would skip a deferred Close.
 	if err := run(); err != nil {
+		// --help already printed usage; it is a successful exit, not a crash.
+		if errors.Is(err, conf.ErrHelpWanted) {
+			return
+		}
 		slog.Error("shutting down", "err", err)
 		os.Exit(1)
 	}
@@ -94,16 +120,12 @@ func run() error {
 		return err
 	}
 
-	// Initialize the proxy manager once and share it
-	proxyFile, err := os.Open("config/proxies.txt")
+	// Initialize the proxy manager once and share it. Proxies are optional: an
+	// empty manager makes rotateClient fall back to a direct connection, so a
+	// missing file is a first-run default rather than an error.
+	shopifyProxyBroker, err := loadProxies(cfg.ProxiesFile)
 	if err != nil {
-		return fmt.Errorf("open proxy file: %w", err)
-	}
-	defer proxyFile.Close()
-
-	shopifyProxyBroker := proxy.NewProxyManager(50)
-	if err := shopifyProxyBroker.LoadProxiesFromFile(proxyFile); err != nil {
-		return fmt.Errorf("load proxies: %w", err)
+		return err
 	}
 
 	if err := startMonitorService(context.Background(), &wg, cfg, shopifyProxyBroker); err != nil {
