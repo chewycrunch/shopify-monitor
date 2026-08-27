@@ -17,11 +17,17 @@ connections. Run `go run main.go --help` for the full generated option list.
 Settings come from environment variables or flags; the runtime data files live
 in [config/](config/), which is gitignored apart from the `example.*` templates.
 
-| Env var                 | Flag              | Default              | Description                                          |
-| ----------------------- | ----------------- | -------------------- | ---------------------------------------------------- |
-| `MONITOR_DELAY`         | `--delay`         | `2500`               | Pause between polling cycles in ms. Recommended: 2000–5000 |
-| `MONITOR_WEBSITES_FILE` | `--websites-file` | `config/websites.csv` | CSV of store URL and webhook URL pairs               |
-| `MONITOR_PROXIES_FILE`  | `--proxies-file`  | `config/proxies.txt`  | One proxy per line; optional                         |
+| Env var                 | Flag              | Default               | Description                                                |
+| ----------------------- | ----------------- | --------------------- | ---------------------------------------------------------- |
+| `MONITOR_DELAY`         | `--delay`         | `2500`                | Pause between polling cycles in ms. Recommended: 2000–5000 |
+| `MONITOR_WEBSITES_FILE` | `--websites-file` | `config/websites.csv` | CSV of store URL and webhook URL pairs                     |
+| `MONITOR_PROXIES_FILE`  | `--proxies-file`  | `config/proxies.txt`  | One proxy per line; optional                               |
+| `MONITOR_LOG_FORMAT`    | `--log-format`    | `text`                | `text` or `json`                                           |
+
+Logs go to stderr. `text` is readable at a terminal and in `journalctl`; set
+`json` where something parses the output, such as a container shipping to Loki
+or ELK. Under systemd, `text` also avoids duplicating the timestamp and priority
+journald already records.
 
 The two path defaults are relative on purpose. The image's `WORKDIR` is `/app`,
 so mounting your config directory at `/app/config` makes them resolve inside a
@@ -38,10 +44,10 @@ url,webhook
 https://kith.com,https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
 ```
 
-| Column    | Description                                                          |
-| --------- | -------------------------------------------------------------------- |
-| `url`     | Shopify store base URL — no trailing slash, no `/products.json`      |
-| `webhook` | Discord webhook URL to receive alerts for that store      |
+| Column    | Description                                                     |
+| --------- | --------------------------------------------------------------- |
+| `url`     | Shopify store base URL — no trailing slash, no `/products.json` |
+| `webhook` | Discord webhook URL to receive alerts for that store            |
 
 Add one row per store. Each store runs in its own goroutine.
 

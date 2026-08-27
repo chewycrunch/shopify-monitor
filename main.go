@@ -95,10 +95,30 @@ func loadProxies(path string) (*proxy.ProxyManager, error) {
 	return pm, nil
 }
 
+// newLogHandler builds the slog handler for MONITOR_LOG_FORMAT.
+//
+// Text is the default because both places this runs by hand want it: a terminal
+// during development, and journalctl on an LXC, where JSON would land as one
+// opaque MESSAGE field and duplicate the timestamp and priority journald
+// already records. Set json where something parses the logs.
+func newLogHandler(w io.Writer, format string) (slog.Handler, error) {
+	switch format {
+	case "text":
+		return slog.NewTextHandler(w, nil), nil
+	case "json":
+		return slog.NewJSONHandler(w, nil), nil
+	default:
+		return nil, fmt.Errorf("unknown log format %q: want text or json", format)
+	}
+}
+
 func main() {
 	// Set before anything else logs. Packages that build loggers in their own
 	// init() would capture the pre-default handler, so they call slog directly.
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+	// This is the default format rather than the configured one: config.Load's
+	// own failures have to be loggable, and run() swaps in the configured
+	// handler as soon as it knows.
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	// Kept free of defers so the exit path below is the only one: gocritic's
 	// exitAfterDefer catches an exit that would skip a deferred Close.
@@ -113,12 +133,20 @@ func main() {
 }
 
 func run() error {
-	slog.Info("welcome to the shopify monitor", "build", config.Build)
-
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
+
+	// Swap the bootstrap handler for the configured one before anything routine
+	// is logged, so a json consumer never has to skip a stray text line.
+	handler, err := newLogHandler(os.Stderr, cfg.LogFormat)
+	if err != nil {
+		return err
+	}
+	slog.SetDefault(slog.New(handler))
+
+	slog.Info("welcome to the shopify monitor", "build", config.Build)
 
 	// Initialize the proxy manager once and share it. Proxies are optional: an
 	// empty manager makes rotateClient fall back to a direct connection, so a
