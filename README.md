@@ -17,6 +17,11 @@ connections. Run `go run main.go --help` for the full generated option list.
 Settings come from environment variables or flags; the runtime data files live
 in [config/](config/), which is gitignored apart from the `example.*` templates.
 
+A gitignored `.env` beside the Taskfile is picked up by `task run` and by
+`docker compose`. Nothing else reads it — a bare `go run main.go` ignores it, so
+pass the variables inline or use `task run`. A real environment variable takes
+precedence over `.env` either way.
+
 | Env var                 | Flag              | Default               | Description                                                |
 | ----------------------- | ----------------- | --------------------- | ---------------------------------------------------------- |
 | `MONITOR_DELAY`         | `--delay`         | `2500`                | Pause between polling cycles in ms. Recommended: 2000–5000 |
