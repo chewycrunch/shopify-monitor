@@ -1,5 +1,10 @@
 version: '3'
 
+# Nothing else reads .env: Go has no notion of it, and Task only loads it when
+# told to. A missing file is not an error, and the real environment still wins,
+# so `MONITOR_LOG_FORMAT=json task run` overrides what is in here.
+dotenv: ['.env']
+
 vars:
   GOPATH:
     sh: go env GOPATH
