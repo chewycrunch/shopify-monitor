@@ -23,3 +23,7 @@ go.work.sum
 
 /config/*
 !/config/example*
+# Local runtime env; compose reads it via env_file
+.env
+.env.*
+!.env.example
