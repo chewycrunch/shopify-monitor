@@ -25,6 +25,7 @@ type Config struct {
 	WebsitesFile string `conf:"default:config/websites.csv,help:CSV of store URL and webhook URL pairs"`
 	ProxiesFile  string `conf:"default:config/proxies.txt,help:one proxy per line with optional basic auth; direct connections if absent"`
 	LogFormat    string `conf:"default:text,help:log output format: text or json"`
+	LogLevel     string `conf:"default:info,help:debug info warn or error; debug adds a line per poll"`
 }
 
 // Load resolves the monitor configuration from environment variables and flags.
