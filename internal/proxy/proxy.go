@@ -30,9 +30,19 @@ func NewProxyManager(initialCapacity int) *ProxyManager {
 
 func (pm *ProxyManager) LoadProxiesFromFile(file *os.File) error {
 	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		proxyStr := scanner.Text()
-		proxy := newProxy(proxyStr)
+	for line := 1; scanner.Scan(); line++ {
+		proxyStr := strings.TrimSpace(scanner.Text())
+
+		// Blank lines and comments are how people annotate these files; a
+		// trailing newline alone produces one. Neither is a proxy.
+		if proxyStr == "" || strings.HasPrefix(proxyStr, "#") {
+			continue
+		}
+
+		proxy, err := newProxy(proxyStr)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", line, err)
+		}
 		pm.addProxy(proxy)
 	}
 
@@ -58,8 +68,12 @@ func (pm *ProxyManager) GetProxy() (Proxy, error) {
 	return proxy, nil
 }
 
-func newProxy(proxyStr string) Proxy {
+func newProxy(proxyStr string) (Proxy, error) {
 	spl := strings.Split(proxyStr, ":")
+
+	if len(spl) != 2 && len(spl) != 4 {
+		return Proxy{}, fmt.Errorf("malformed proxy %q: want host:port or host:port:user:pass", proxyStr)
+	}
 
 	p := Proxy{
 		Host: spl[0],
@@ -71,7 +85,7 @@ func newProxy(proxyStr string) Proxy {
 		p.Pass = spl[3]
 	}
 
-	return p
+	return p, nil
 }
 
 func (p *Proxy) Stringify() string {
