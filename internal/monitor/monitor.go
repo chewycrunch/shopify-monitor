@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/chewycrunch/shopify-monitor/internal/proxy"
@@ -25,7 +26,16 @@ type Monitor struct {
 	log         *slog.Logger
 }
 
+// normalizeBaseURL trims whitespace and trailing slashes, which the request
+// path is concatenated onto.
+func normalizeBaseURL(raw string) string {
+	return strings.TrimRight(strings.TrimSpace(raw), "/")
+}
+
+// Instanciates a new monitor given a store, webhook, and proxy manager instance
 func NewMonitor(url string, webhookUrl string, pb *proxy.ProxyManager) *Monitor {
+	url = normalizeBaseURL(url)
+
 	// Bound once here so every line this monitor logs carries its site.
 	log := slog.Default().With("site", url)
 	log.Info("creating monitor")
