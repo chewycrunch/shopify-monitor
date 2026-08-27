@@ -4,10 +4,10 @@ vars:
   GOPATH:
     sh: go env GOPATH
   GOLANGCI: '{{.GOPATH}}/bin/golangci-lint'
-  ACCOUNT: '794038239303'
-  REGION: us-east-1
-  REGISTRY: '{{.ACCOUNT}}.dkr.ecr.{{.REGION}}.amazonaws.com'
+  OWNER: chewycrunch
+  REGISTRY: ghcr.io
   IMAGE: shopify-monitor
+  REPO: '{{.REGISTRY}}/{{.OWNER}}/{{.IMAGE}}'
   GOLANGCI_VERSION: v2.12.2
   PLATFORMS: linux/amd64,linux/arm64
   BUILD:
@@ -58,9 +58,11 @@ tasks:
       - task: lint
 
   login:
-    desc: Authenticate Docker against ECR
+    desc: Authenticate Docker against GHCR
+    # Reuses the gh CLI's token rather than a separate PAT. Needs the
+    # write:packages scope: `gh auth refresh -s write:packages` if it is missing.
     cmds:
-      - aws ecr get-login-password --region {{.REGION}} --profile personal | docker login --username AWS --password-stdin {{.REGISTRY}}
+      - gh auth token | docker login {{.REGISTRY}} -u {{.OWNER}} --password-stdin
 
   build:
     desc: Build the image for this machine only, for running locally
@@ -70,7 +72,9 @@ tasks:
       - docker build --build-arg BUILD={{.BUILD}} -t {{.IMAGE}}:{{.BUILD}} -t {{.IMAGE}}:latest .
 
   release:
-    desc: Build for every deployed architecture and push to ECR
+    desc: Build every architecture and push to GHCR by hand
+    # Normally CI does this on every push to main; this is the escape hatch for
+    # when you need an image out without going through main.
     # buildx builds and pushes in one step: a multi-platform result is a manifest
     # list, which the local image store cannot hold, so there is nothing to tag
     # and push separately.
@@ -79,14 +83,24 @@ tasks:
         docker buildx build
         --platform {{.PLATFORMS}}
         --build-arg BUILD={{.BUILD}}
-        -t {{.REGISTRY}}/{{.IMAGE}}:{{.BUILD}}
-        -t {{.REGISTRY}}/{{.IMAGE}}:latest
+        -t {{.REPO}}:sha-{{.BUILD}}
+        -t {{.REPO}}:latest
         --push .
 
   verify:
     desc: Report which architectures the pushed image supports
     cmds:
-      - docker buildx imagetools inspect {{.REGISTRY}}/{{.IMAGE}}:latest
+      - docker buildx imagetools inspect {{.REPO}}:latest
+
+  promote:
+    desc: Point a version tag at an already-built image (VERSION=v1.2.3 SHA=abc1234)
+    # The same retag the release workflow performs, for doing it from a laptop.
+    # Copies the existing manifest list, so it never rebuilds.
+    requires:
+      vars: [VERSION, SHA]
+    cmds:
+      - docker buildx imagetools create --tag {{.REPO}}:{{.VERSION}} {{.REPO}}:sha-{{.SHA}}
+      - docker buildx imagetools inspect {{.REPO}}:{{.VERSION}}
 
   deploy:
     desc: Log in, then build and push every architecture
