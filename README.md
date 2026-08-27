@@ -67,7 +67,20 @@ missing. A malformed line is a startup error naming the line number.
 
 ---
 
-## Docker
+## Docker (optional)
+
+The monitor is a single static binary with no runtime dependencies — `go build`
+and running it under systemd or a terminal multiplexer is a perfectly good
+deployment. A prebuilt image is published if you'd rather not compile:
+
+```bash
+docker run -d --restart unless-stopped \
+  -v ./config:/app/config:ro \
+  --log-opt max-size=10m --log-opt max-file=3 \
+  ghcr.io/chewycrunch/shopify-monitor:latest
+```
+
+Or, if the host already uses Compose, drop this beside your `config/` directory:
 
 ```yaml
 services:
@@ -75,14 +88,31 @@ services:
     image: ghcr.io/chewycrunch/shopify-monitor:latest
     volumes:
       - ./config:/app/config:ro
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 ```
 
-The bind mount keeps webhook tokens and proxy credentials out of the image. If
-`./config` does not exist on the host, Docker silently creates it empty rather
-than failing, and the monitor exits with `open config/websites.csv: no such file
-or directory` — create your config files before the first `up`.
+Three things worth knowing either way:
+
+- **The mount target must be `/app/config`.** That is the image's `WORKDIR`, and
+  it is what makes the relative path defaults resolve in a container exactly as
+  they do locally. Mount somewhere else and you must set `MONITOR_WEBSITES_FILE`
+  and `MONITOR_PROXIES_FILE` to match.
+- **Create `config/` before the first run.** If it does not exist, Docker
+  silently creates it empty rather than failing, and the monitor exits with
+  `open config/websites.csv: no such file or directory`.
+- **Cap the logs.** Output is one JSON object per line on stderr, forever; an
+  uncapped long-running poller will eventually fill the host disk.
+
+The bind mount is read-only because the monitor never writes to these files, and
+it keeps webhook tokens and proxy credentials out of the image.
 
 ---
 
