@@ -12,6 +12,12 @@ jobs:
   promote:
     runs-on: ubuntu-latest
     steps:
+      # Only here for the tag list the alias guards need; the image itself is
+      # never rebuilt from this checkout.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - uses: docker/setup-buildx-action@v4
 
       - uses: docker/login-action@v4
@@ -20,16 +26,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # No checkout and no rebuild: this copies the manifest list that main
-      # already built and tested, so :v1.2.3 is the exact bits that ran as
-      # :latest, multi-arch intact. Rebuilding from the tag would produce a
-      # different image from the same source.
-      - name: Point the version tag at the image built for this commit
+      # No rebuild: this copies the manifest list main already built and tested,
+      # so the released image is the exact bits that ran as :edge, multi-arch
+      # intact. Rebuilding from the tag would produce a different image from
+      # identical source.
+      - name: Promote the image built for this commit
         env:
           IMAGE: ghcr.io/${{ github.repository }}
-          VERSION: ${{ github.ref_name }}
+          GIT_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+
+          # The git tag carries the v (v1.1.0); the image tag does not (1.1.0).
+          # Semver treats the prefix as no part of the version, every Docker
+          # Official Image publishes bare, and metadata-action's {{version}}
+          # strips it by default — this keeps us on that side.
+          VERSION="${GIT_TAG#v}"
           SRC="$IMAGE:sha-${GITHUB_SHA:0:7}"
 
           if ! docker buildx imagetools inspect "$SRC" >/dev/null 2>&1; then
@@ -38,5 +50,38 @@ jobs:
             exit 1
           fi
 
-          docker buildx imagetools create --tag "$IMAGE:$VERSION" "$SRC"
+          TAGS=("$IMAGE:$VERSION")
+
+          # Highest existing tag matching $1. The `|| true` matters: grep exits
+          # 1 on no match, and pipefail would otherwise abort the whole job the
+          # first time a line has no releases yet.
+          newest() { git tag -l 'v*' | grep -E "$1" | sort -V | tail -1 || true; }
+
+          # Rolling aliases apply only to a plain X.Y.Z. A prerelease publishes
+          # its exact version and moves nothing, so v2.0.0-rc1 can never become
+          # :latest or :2.
+          if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.[0-9]+$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+
+            # Each alias moves only if this release is the newest in its own
+            # line. Without this, a hotfix tagged on an older branch would drag
+            # the coarser tags backwards onto stale code.
+            if [ "$GIT_TAG" = "$(newest "^v${MAJOR}\.${BASH_REMATCH[2]}\.[0-9]+$")" ]; then
+              TAGS+=("$IMAGE:$MINOR")
+            fi
+            if [ "$GIT_TAG" = "$(newest "^v${MAJOR}\.[0-9]+\.[0-9]+$")" ]; then
+              TAGS+=("$IMAGE:$MAJOR")
+            fi
+            if [ "$GIT_TAG" = "$(newest '^v[0-9]+\.[0-9]+\.[0-9]+$')" ]; then
+              TAGS+=("$IMAGE:latest")
+            fi
+          fi
+
+          echo "Publishing: ${TAGS[*]}"
+
+          ARGS=()
+          for t in "${TAGS[@]}"; do ARGS+=(--tag "$t"); done
+          docker buildx imagetools create "${ARGS[@]}" "$SRC"
+
           docker buildx imagetools inspect "$IMAGE:$VERSION"

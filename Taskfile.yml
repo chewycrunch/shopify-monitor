@@ -95,12 +95,15 @@ tasks:
   promote:
     desc: Point a version tag at an already-built image (VERSION=v1.2.3 SHA=abc1234)
     # The same retag the release workflow performs, for doing it from a laptop.
-    # Copies the existing manifest list, so it never rebuilds.
+    # Copies the existing manifest list, so it never rebuilds. Strips the v the
+    # same way CI does, so VERSION=v1.2.3 and VERSION=1.2.3 both publish 1.2.3.
     requires:
       vars: [VERSION, SHA]
     cmds:
-      - docker buildx imagetools create --tag {{.REPO}}:{{.VERSION}} {{.REPO}}:sha-{{.SHA}}
-      - docker buildx imagetools inspect {{.REPO}}:{{.VERSION}}
+      - |
+        V="{{.VERSION}}"; V="${V#v}"
+        docker buildx imagetools create --tag {{.REPO}}:"$V" {{.REPO}}:sha-{{.SHA}}
+        docker buildx imagetools inspect {{.REPO}}:"$V"
 
   deploy:
     desc: Log in, then build and push every architecture

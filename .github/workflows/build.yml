@@ -40,8 +40,10 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
+          # No :latest here — that now tracks releases, not main. :edge keeps a
+          # stable name for "newest build off main" so the convenience is not lost.
           tags: |
-            type=raw,value=latest
+            type=raw,value=edge
             type=raw,value=sha-${{ steps.sha.outputs.short }}
 
       - uses: docker/build-push-action@v7
