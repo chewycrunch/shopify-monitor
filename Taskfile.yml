@@ -26,6 +26,20 @@ tasks:
       - git config core.hooksPath .githooks
       - chmod +x .githooks/*
 
+  init:
+    desc: Seed config/ from the example templates, leaving any existing files alone
+    # Deliberately not `cp -n`: BSD and GNU disagree on its exit status when it
+    # skips, so an existing config would either fail the task or need `|| true`
+    # papering over a real error.
+    cmds:
+      - for f in websites.csv proxies.txt; do [ -f "config/$f" ] || cp "config/example.$f" "config/$f"; done
+      - echo "config/ ready — add your stores to config/websites.csv"
+
+  run:
+    desc: Run against config/ without building an image
+    cmds:
+      - go run main.go
+
   tools:
     desc: Install golangci-lint
     # Binary install, per golangci-lint's own guidance: go install and tool
