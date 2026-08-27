@@ -22,6 +22,12 @@ in [config/](config/), which is gitignored apart from the `example.*` templates.
 | `MONITOR_DELAY`         | `--delay`         | `2500`                | Pause between polling cycles in ms. Recommended: 2000–5000 |
 | `MONITOR_WEBSITES_FILE` | `--websites-file` | `config/websites.csv` | CSV of store URL and webhook URL pairs                     |
 | `MONITOR_PROXIES_FILE`  | `--proxies-file`  | `config/proxies.txt`  | One proxy per line; optional                               |
+| `MONITOR_LOG_FORMAT`    | `--log-format`    | `text`                | `text` or `json`                                           |
+
+Logs go to stderr. `text` is readable at a terminal and in `journalctl`; set
+`json` where something parses the output, such as a container shipping to Loki
+or ELK. Under systemd, `text` also avoids duplicating the timestamp and priority
+journald already records.
 
 The two path defaults are relative on purpose. The image's `WORKDIR` is `/app`,
 so mounting your config directory at `/app/config` makes them resolve inside a
