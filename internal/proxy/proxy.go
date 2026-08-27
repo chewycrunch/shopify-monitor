@@ -3,6 +3,8 @@ package proxy
 import (
 	"bufio"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -88,15 +90,28 @@ func newProxy(proxyStr string) (Proxy, error) {
 	return p, nil
 }
 
+// Stringify renders the proxy as a URL for http.Transport.
+//
+// The scheme is not optional. url.Parse reads a bare "host:port" as scheme
+// "host" with an empty Host and returns no error, so a schemeless proxy is not
+// rejected anywhere — it silently becomes a transport that dials :0 and fails
+// every request with "can't assign requested address".
+//
+// Built through net/url rather than fmt so credentials containing @ or : are
+// escaped instead of corrupting the URL, and so IPv6 hosts get their brackets.
 func (p *Proxy) Stringify() string {
 	if p.Host == "" || p.Port == "" {
 		return ""
 	}
 
-	if p.User == "" && p.Pass == "" {
-		return fmt.Sprintf("%s:%s", p.Host, p.Port)
+	u := url.URL{
+		Scheme: "http",
+		Host:   net.JoinHostPort(p.Host, p.Port),
 	}
 
-	return fmt.Sprintf("http://%s:%s@%s:%s", p.User, p.Pass, p.Host, p.Port)
+	if p.User != "" || p.Pass != "" {
+		u.User = url.UserPassword(p.User, p.Pass)
+	}
 
+	return u.String()
 }
