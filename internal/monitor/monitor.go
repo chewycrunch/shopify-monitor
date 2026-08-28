@@ -65,16 +65,61 @@ func (m *Monitor) InitializeVariants(ctx context.Context) error {
 	return nil
 }
 
+// sleepCtx waits for d and reports whether it completed. A false return means
+// ctx was cancelled, which is the caller's signal to stop.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
 // Start monitoring the site
 func (m *Monitor) StartWatching(ctx context.Context, duration time.Duration) error {
-	time.Sleep(duration)
+	if !sleepCtx(ctx, duration) {
+		return ctx.Err()
+	}
+
+	// A fetch failure is routine, not terminal: proxies time out, stores rate
+	// limit, DNS blips. Returning here would retire this site for the life of
+	// the process, and once every site has retired the program exits — so one
+	// slow proxy used to take down the whole monitor. Each cycle rotates to the
+	// next proxy, so retrying is usually enough to recover on its own.
+	failures := 0
 
 	for {
-		m.log.Info("refreshing")
+		// Debug, not info: this fires every cycle for every site, so at a 5s
+		// delay it is the overwhelming majority of the log and says nothing
+		// beyond "still alive". The events below are what is worth reading.
+		m.log.Debug("refreshing")
 		m.rotateClient()
 		res, err := FetchProductData(ctx, m.Url, m.client)
 		if err != nil {
-			return err
+			// Give up only if the context is done — that is a real shutdown.
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			failures++
+			m.log.Warn("fetch failed, retrying next cycle",
+				"err", err,
+				"consecutive_failures", failures,
+			)
+
+			if !sleepCtx(ctx, duration) {
+				return ctx.Err()
+			}
+			continue
+		}
+
+		if failures > 0 {
+			m.log.Info("fetch recovered", "after_failures", failures)
+			failures = 0
 		}
 
 		for _, product := range res {
@@ -85,18 +130,33 @@ func (m *Monitor) StartWatching(ctx context.Context, duration time.Duration) err
 					m.VariantMap[variant.ID] = variant.Available
 
 					// Variant is not in map (NEW VARIANT), send webhook
+					m.log.Info("new variant",
+						"product", product.Title,
+						"variant", variant.Title,
+						"variant_id", variant.ID,
+						"available", variant.Available,
+						"handle", product.Handle,
+					)
 					webhook.WebhookMaster.SendNewVariant()
 				} else if m.VariantMap[variant.ID] != variant.Available && variant.Available {
 					// Variant is in map and availability has changed to true,
 					// send webhook
 					m.VariantMap[variant.ID] = variant.Available
 
+					m.log.Info("restock",
+						"product", product.Title,
+						"variant", variant.Title,
+						"variant_id", variant.ID,
+						"handle", product.Handle,
+					)
 					webhook.WebhookMaster.SendVariantAvail()
 				}
 			}
 		}
 
-		time.Sleep(duration)
+		if !sleepCtx(ctx, duration) {
+			return ctx.Err()
+		}
 	}
 }
 

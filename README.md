@@ -28,11 +28,17 @@ precedence over `.env` either way.
 | `MONITOR_WEBSITES_FILE` | `--websites-file` | `config/websites.csv` | CSV of store URL and webhook URL pairs                     |
 | `MONITOR_PROXIES_FILE`  | `--proxies-file`  | `config/proxies.txt`  | One proxy per line; optional                               |
 | `MONITOR_LOG_FORMAT`    | `--log-format`    | `text`                | `text` or `json`                                           |
+| `MONITOR_LOG_LEVEL`     | `--log-level`     | `info`                | `debug`, `info`, `warn`, or `error`                        |
 
 Logs go to stderr. `text` is readable at a terminal and in `journalctl`; set
 `json` where something parses the output, such as a container shipping to Loki
 or ELK. Under systemd, `text` also avoids duplicating the timestamp and priority
 journald already records.
+
+At `info` the log carries only events worth reading — startup, `new variant`,
+`restock`, and errors. The per-poll heartbeat is `debug`, because at a 2.5s delay
+it would otherwise be tens of thousands of lines a day per store and drown the
+events. Set `debug` when you need to confirm a store is being polled at all.
 
 The two path defaults are relative on purpose. The image's `WORKDIR` is `/app`,
 so mounting your config directory at `/app/config` makes them resolve inside a

@@ -58,13 +58,32 @@ func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Con
 		// Start a goroutine for each website
 		go func() {
 			defer wg.Done()
+			delay := time.Duration(cfg.Delay) * time.Millisecond
 			m := monitor.NewMonitor(websiteURL, webhookURL, proxyManager)
-			if err := m.InitializeVariants(ctx); err != nil {
-				slog.Error("failed to initialize variants", "site", websiteURL, "err", err)
-				return
+
+			// Retry rather than give up: the baseline fetch goes through the
+			// same rotating proxies as every later one, so a single timeout
+			// here would otherwise drop this site for the life of the process.
+			for attempt := 1; ; attempt++ {
+				err := m.InitializeVariants(ctx)
+				if err == nil {
+					break
+				}
+				if ctx.Err() != nil {
+					return
+				}
+				slog.Warn("initialize failed, retrying",
+					"site", m.Url, "attempt", attempt, "err", err)
+
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(delay):
+				}
 			}
-			if err := m.StartWatching(ctx, time.Duration(cfg.Delay)*time.Millisecond); err != nil {
-				slog.Error("stopped watching", "site", websiteURL, "err", err)
+
+			if err := m.StartWatching(ctx, delay); err != nil {
+				slog.Error("stopped watching", "site", m.Url, "err", err)
 			}
 		}()
 
@@ -101,12 +120,20 @@ func loadProxies(path string) (*proxy.ProxyManager, error) {
 // during development, and journalctl on an LXC, where JSON would land as one
 // opaque MESSAGE field and duplicate the timestamp and priority journald
 // already records. Set json where something parses the logs.
-func newLogHandler(w io.Writer, format string) (slog.Handler, error) {
+func newLogHandler(w io.Writer, format, level string) (slog.Handler, error) {
+	var lvl slog.Level
+	// UnmarshalText takes the same names slog prints, and is case-insensitive.
+	if err := lvl.UnmarshalText([]byte(level)); err != nil {
+		return nil, fmt.Errorf("unknown log level %q: want debug, info, warn, or error", level)
+	}
+
+	opts := &slog.HandlerOptions{Level: lvl}
+
 	switch format {
 	case "text":
-		return slog.NewTextHandler(w, nil), nil
+		return slog.NewTextHandler(w, opts), nil
 	case "json":
-		return slog.NewJSONHandler(w, nil), nil
+		return slog.NewJSONHandler(w, opts), nil
 	default:
 		return nil, fmt.Errorf("unknown log format %q: want text or json", format)
 	}
@@ -140,7 +167,7 @@ func run() error {
 
 	// Swap the bootstrap handler for the configured one before anything routine
 	// is logged, so a json consumer never has to skip a stray text line.
-	handler, err := newLogHandler(os.Stderr, cfg.LogFormat)
+	handler, err := newLogHandler(os.Stderr, cfg.LogFormat, cfg.LogLevel)
 	if err != nil {
 		return err
 	}
