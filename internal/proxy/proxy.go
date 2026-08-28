@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 )
 
 type Proxy struct {
@@ -16,7 +17,10 @@ type Proxy struct {
 	Pass string
 }
 
+// ProxyManager hands out proxies round-robin to goroutines, so we need a
+// mutex to handle rotation
 type ProxyManager struct {
+	mu      sync.Mutex
 	proxies []Proxy
 	start   int
 	size    int
@@ -56,11 +60,17 @@ func (pm *ProxyManager) LoadProxiesFromFile(file *os.File) error {
 }
 
 func (pm *ProxyManager) addProxy(proxy Proxy) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
 	pm.proxies = append(pm.proxies, proxy)
 	pm.size++
 }
 
 func (pm *ProxyManager) GetProxy() (Proxy, error) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
 	if pm.size == 0 {
 		return Proxy{}, fmt.Errorf("no proxies available")
 	}

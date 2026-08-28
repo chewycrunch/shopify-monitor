@@ -1,31 +1,30 @@
 package webhook
 
 import (
-	"log/slog"
 	"net/http"
-	"net/url"
-
-	"github.com/chewycrunch/shopify-monitor/internal/proxy"
+	"time"
 )
 
 // Webhook sender, rescheduler
-//
-// Built in init(), which runs before main can call slog.SetDefault, so this
-// package calls slog directly rather than binding a logger on the manager.
 var WebhookMaster *WebhookManager
 
 func init() {
 	// Load init
-	WebhookMaster = NewWebhookManager(proxy.NewProxyManager(10))
+	WebhookMaster = NewWebhookManager()
 }
 
+// WebhookManager posts to Discord directly rather than through the proxy pool.
+// The proxies exist to keep Shopify from rate limiting us by IP; Discord limits
+// per webhook, not per source address, so routing through a residential proxy
+// would buy nothing and add a hop that can fail.
 type WebhookManager struct {
-	client      *http.Client
-	proxyBroker *proxy.ProxyManager
+	client *http.Client
 }
 
-func NewWebhookManager(pb *proxy.ProxyManager) *WebhookManager {
-	return &WebhookManager{client: &http.Client{}, proxyBroker: pb}
+func NewWebhookManager() *WebhookManager {
+	// An explicit timeout: http.Client's zero value waits forever, and a
+	// webhook that never returns would wedge whatever calls it.
+	return &WebhookManager{client: &http.Client{Timeout: 10 * time.Second}}
 }
 
 func (webhook *WebhookManager) SendNewVariant() {
@@ -37,41 +36,7 @@ func (webhook *WebhookManager) SendVariantAvail() {
 }
 
 // func (webhook *WebhookManager) SendWebhook(url string, status string) {
-// 	webhook.rotateClient()
 // 	// Now send
 // 	webhook.client.Post(url, "application/json", nil)
 // 	// Send a webhook to the webhook URL
 // }
-
-// Rotate proxy client (fallback to local client if no proxies available)
-// Unused until SendWebhook above is implemented.
-//
-//nolint:unused
-func (webhook *WebhookManager) rotateClient() {
-	proxy, err := webhook.proxyBroker.GetProxy()
-	if err != nil {
-		slog.Warn("failed to get proxy, using local client", "component", "webhook", "err", err)
-		webhook.useLocalClient()
-		return
-	}
-	proxyUrl, err := url.Parse(proxy.Stringify())
-	if err != nil {
-		slog.Warn("failed to parse proxy url, using local client", "component", "webhook", "err", err)
-		webhook.useLocalClient()
-		return
-	}
-
-	webhook.client = &http.Client{
-		Transport: &http.Transport{
-			Proxy: http.ProxyURL(proxyUrl),
-		},
-	}
-
-}
-
-// Use local client
-//
-//nolint:unused
-func (webhook *WebhookManager) useLocalClient() {
-	webhook.client = &http.Client{}
-}
