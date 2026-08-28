@@ -67,10 +67,20 @@ tasks:
     cmds:
       - go mod tidy -diff
 
+  test:
+    desc: Run the tests with the race detector
+    # -race, always: one manager is shared across every site's goroutine, so the
+    # bugs worth catching here are the ones a plain `go test` runs straight past.
+    cmds:
+      - go test -race ./...
+
   check:
     desc: Everything the pre-commit hook runs — formatting, go.mod, and the linter
     # Verifies rather than rewrites, so this is safe to run anywhere; `task fmt`
     # is the one that edits files.
+    #
+    # Deliberately no tests: this mirrors the pre-commit hook, and a hook that
+    # blocks on a failing test blocks committing work in progress.
     cmds:
       - '{{.GOLANGCI}} fmt --diff ./...'
       - task: tidy

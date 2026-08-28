@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -59,6 +60,31 @@ func TestLoadProxiesRejectsMalformed(t *testing.T) {
 	if _, err := loadString(t, "a.com:8080\nnotaproxy\n"); err == nil {
 		t.Fatal("expected an error for a malformed line, got nil")
 	}
+}
+
+// main shares one manager across every site's goroutine, so GetProxy is called
+// concurrently in production. Run under -race; without the mutex this trips on
+// the rotation counter.
+func TestGetProxyConcurrent(t *testing.T) {
+	pm, err := loadString(t, "a.com:1\nb.com:2\nc.com:3\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 200; j++ {
+				if _, err := pm.GetProxy(); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestStringify(t *testing.T) {
