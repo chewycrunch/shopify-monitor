@@ -26,6 +26,7 @@ type Config struct {
 	ProxiesFile  string `conf:"default:config/proxies.txt,help:one proxy per line with optional basic auth; direct connections if absent"`
 	LogFormat    string `conf:"default:text,help:log output format: text or json"`
 	LogLevel     string `conf:"default:info,help:debug info warn or error; debug adds a line per poll"`
+	PageWorkers  int    `conf:"default:5,help:catalog pages fetched at once; each goes through its own proxy"`
 }
 
 // Load resolves the monitor configuration from environment variables and flags.
