@@ -71,14 +71,48 @@ way to distinguish a genuinely final page from a truncated one, and no
 independent product count exists to check against, so no cross-check is
 attempted.
 
-### Scale
+### The endpoint stops at 25,000 products
 
-Catalogues are larger than they appear from the first page. One monitored store
-holds over 2,750 products and 32,600 variants across more than 12 pages at the
-maximum page size; a full read is roughly 15 MB. A neighbouring store fits in a
-single page. Acquisition cost varies by two orders of magnitude between stores
-in the same stores file, which is why polling interval is a per-store decision
-(see `store-config`).
+Pagination is bounded by *offset*, not page count: `limit=250&page=101` is
+refused with HTTP 400, while `limit=50&page=101` succeeds. Both reach the same
+wall at 25,000 products, so the maximum page size is also the cheapest way to
+reach it — a smaller page size only spends more requests arriving at the same
+place.
+
+Nothing beyond that offset is reachable through this endpoint. The store's
+sitemaps do list the whole catalogue, but they carry no availability, and their
+`lastmod` moves in bulk rather than per change, so they cannot stand in for it.
+`since_id` is accepted and ignored; cursor pagination belongs to the
+authenticated Admin API, not this one.
+
+### Scale, and why depth is capped
+
+Catalogues are far larger than the first page suggests, and their value is
+concentrated at the front. Sampled across one monitored store:
+
+| Page | Oldest product on it | Variants in stock |
+| --- | --- | --- |
+| 1 | 2 days old | 75% |
+| 10 | 2 months | 29% |
+| 25 | 3 months | 27% |
+| 50 | 5 months | 0.5% |
+| 100 | ~4 years | 0.4% |
+
+That store holds roughly 35,800 products and 350,000 variants; 25,000 products
+are reachable, of which the first quarter hold nearly all the live inventory.
+Past roughly page 30 the catalogue is an archive — years old, effectively sold
+out, and unlikely to change.
+
+Reading to the reachable limit therefore spends most of its bandwidth watching
+products that will not restock. Crawl depth is capped instead, in products
+rather than pages, and set per store: a store whose whole catalogue fits in one
+page needs no cap worth the name, while a large one is read only as deep as its
+inventory is live.
+
+Capping depth also shrinks the failure surface. A crawl's chance of hitting a
+transient error grows with its request count, and a baseline crawl must be
+complete — so a hundred-request crawl is markedly harder to complete cleanly
+than a twenty-four-request one.
 
 ## Rate Limiting
 
@@ -131,9 +165,21 @@ flowchart LR
    to about a second narrows that window rather than closing it.
 3. Wall-clock time.
 
-**Why batches rather than full parallelism.** The page count is unknown before
-the walk begins, so the batch is a speculative read-ahead. Overshooting the end
-costs a few empty responses of a few hundred bytes each.
+**Why batches rather than full parallelism.** Where the crawl is uncapped the
+page count is unknown before the walk begins, so the batch is a speculative
+read-ahead, and overshooting the end costs a few empty responses of a few
+hundred bytes each.
+
+A capped crawl does not need to speculate. The cap is a product count and the
+page size is fixed, so the pages required are known before the first request and
+the walk asks for exactly those. A store capped below one page's worth issues a
+single request rather than a batch of them.
+
+**Page size is fixed for every request in a crawl.** A page number addresses an
+offset of page size times page index, so varying the size mid-walk would skip or
+repeat products. The cap is applied to the accumulated results afterwards, which
+is also why it is expressed in products: it means the same thing regardless of
+what the page size happens to be.
 
 **Ordering is preserved.** Pages are appended in page order regardless of
 completion order, so a crawl's output is identical to a sequential read's.

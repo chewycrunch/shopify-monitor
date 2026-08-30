@@ -24,6 +24,7 @@ type Monitor struct {
 
 	proxyBroker *proxy.ProxyManager
 	pageWorkers int
+	maxProducts int
 	log         *slog.Logger
 }
 
@@ -38,20 +39,20 @@ func normalizeBaseURL(raw string) string {
 }
 
 // Instanciates a new monitor given a store, webhook, and proxy manager instance
-func NewMonitor(url string, webhookUrl string, pb *proxy.ProxyManager, pageWorkers int) *Monitor {
+func NewMonitor(url string, webhookUrl string, pb *proxy.ProxyManager, pageWorkers, maxProducts int) *Monitor {
 	url = normalizeBaseURL(url)
 
 	// Bound once here so every line this monitor logs carries its site.
 	log := slog.Default().With("site", url)
 	log.Info("creating monitor")
-	return &Monitor{Url: url, WebhookUrl: webhookUrl, VariantMap: make(map[int64]bool), proxyBroker: pb, pageWorkers: pageWorkers, log: log}
+	return &Monitor{Url: url, WebhookUrl: webhookUrl, VariantMap: make(map[int64]bool), proxyBroker: pb, pageWorkers: pageWorkers, maxProducts: maxProducts, log: log}
 }
 
 // Initialize variants for the monitor
 func (m *Monitor) InitializeVariants(ctx context.Context) error {
 	m.log.Info("initializing variants")
 	// Fetch variants and load them into the map
-	res, err := FetchAllProducts(ctx, m.Url, m.nextClient, m.pageWorkers)
+	res, err := FetchAllProducts(ctx, m.Url, m.nextClient, m.pageWorkers, m.maxProducts)
 	if err != nil {
 		return err
 	}
@@ -93,7 +94,7 @@ func (m *Monitor) StartWatching(ctx context.Context, duration time.Duration) err
 		// delay it is the overwhelming majority of the log and says nothing
 		// beyond "still alive". The events below are what is worth reading.
 		m.log.Debug("refreshing")
-		res, err := FetchAllProducts(ctx, m.Url, m.nextClient, m.pageWorkers)
+		res, err := FetchAllProducts(ctx, m.Url, m.nextClient, m.pageWorkers, m.maxProducts)
 		if err != nil {
 			// Give up only if the context is done — that is a real shutdown.
 			if ctx.Err() != nil {
@@ -182,32 +183,50 @@ func (m *Monitor) nextClient() *http.Client {
 // change does not move a product, so restocks below that line are never seen.
 const pageSize = 250
 
-// FetchAllProducts walks every page of the catalog, newest first.
+// FetchAllProducts walks the catalogue, newest first, up to maxProducts.
+//
+// maxProducts of zero means the whole catalogue. Otherwise the crawl stops once
+// it holds that many, and returns exactly that many — the cap counts products
+// rather than pages so it means the same thing whatever the page size is, and
+// so an operator setting it never has to know what the page size is.
 //
 // Pages go out in concurrent batches. Two reasons beyond speed: each request
 // leaves through a different proxy, so Shopify sees one request per address
-// rather than a dozen from one (which it answers with 429); and the catalog is
+// rather than a dozen from one (which it answers with 429); and the catalogue is
 // ordered by published_at, so a product published mid-crawl shifts everything
 // down a slot and can slip across a page boundary already passed. A crawl that
 // takes one second instead of seven has far less room for that.
 //
 // nextClient is called once per page. It must be safe to call concurrently.
-func FetchAllProducts(ctx context.Context, shopifyBaseUrl string, nextClient func() *http.Client, concurrency int) ([]utils.Product, error) {
+//
+// @spec ACQ-PAGE-001, ACQ-PAGE-002, ACQ-PAGE-003, ACQ-PAGE-004, ACQ-PAGE-007, ACQ-DEPTH-001, ACQ-DEPTH-002, ACQ-DEPTH-003, ACQ-DEPTH-004
+func FetchAllProducts(ctx context.Context, shopifyBaseUrl string, nextClient func() *http.Client, concurrency, maxProducts int) ([]utils.Product, error) {
 	if concurrency < 1 {
 		concurrency = 1
 	}
 
+	// A cap makes the page count knowable before the first request, so a capped
+	// crawl asks for exactly the pages it needs. Uncapped, the count is unknown
+	// — Shopify reports no total — so the batch speculates a page ahead and
+	// stops on the first short page, paying a few empty responses for it.
+	lastPage := 0
+	if maxProducts > 0 {
+		lastPage = (maxProducts + pageSize - 1) / pageSize
+	}
+
 	var all []utils.Product
 
-	// The page count is unknown up front — Shopify reports no total — so this
-	// speculates a batch ahead and stops on the first short page. Overshooting
-	// costs a few empty responses, which are a few hundred bytes each.
-	for start := 1; ; start += concurrency {
-		pages := make([][]utils.Product, concurrency)
-		errs := make([]error, concurrency)
+	for start := 1; lastPage == 0 || start <= lastPage; start += concurrency {
+		width := concurrency
+		if lastPage > 0 && start+width-1 > lastPage {
+			width = lastPage - start + 1
+		}
+
+		pages := make([][]utils.Product, width)
+		errs := make([]error, width)
 
 		var wg sync.WaitGroup
-		for i := range concurrency {
+		for i := range width {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -233,12 +252,25 @@ func FetchAllProducts(ctx context.Context, shopifyBaseUrl string, nextClient fun
 			all = append(all, products...)
 
 			// A short page is the last one. Anything fetched past it in this
-			// batch is beyond the end of the catalog.
+			// batch is beyond the end of the catalogue.
 			if len(products) < pageSize {
-				return all, nil
+				return truncate(all, maxProducts), nil
 			}
 		}
 	}
+
+	return truncate(all, maxProducts), nil
+}
+
+// truncate applies a product cap. The cap is enforced here rather than by
+// asking for a smaller final page, because a page number addresses an offset of
+// page size times page index: changing the size mid-crawl would skip or repeat
+// products.
+func truncate(products []utils.Product, maxProducts int) []utils.Product {
+	if maxProducts > 0 && len(products) > maxProducts {
+		return products[:maxProducts]
+	}
+	return products
 }
 
 func FetchProductPage(ctx context.Context, shopifyBaseUrl string, page int, client *http.Client) ([]utils.Product, error) {
