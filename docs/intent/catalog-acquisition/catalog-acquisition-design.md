@@ -79,6 +79,13 @@ wall at 25,000 products, so the maximum page size is also the cheapest way to
 reach it — a smaller page size only spends more requests arriving at the same
 place.
 
+A request past that offset is refused with 400, which is the same answer a
+malformed request gets. On a page after the first it is the end of what can be
+read and ends the crawl with what it already has; on the first page it is a bad
+request and fails. A catalogue larger than the offset limit has no short page to
+stop on, so without this distinction the largest stores can never complete a
+crawl at all.
+
 Nothing beyond that offset is reachable through this endpoint. The store's
 sitemaps do list the whole catalogue, but they carry no availability, and their
 `lastmod` moves in bulk rather than per change, so they cannot stand in for it.
