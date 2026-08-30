@@ -27,6 +27,7 @@ type Config struct {
 	LogFormat    string `conf:"default:text,help:log output format: text or json"`
 	LogLevel     string `conf:"default:info,help:debug info warn or error; debug adds a line per poll"`
 	PageWorkers  int    `conf:"default:5,help:catalog pages fetched at once; each goes through its own proxy"`
+	MaxProducts  int    `conf:"default:6000,help:newest products crawled per store; 0 for the whole reachable catalogue"`
 }
 
 // Load resolves the monitor configuration from environment variables and flags.

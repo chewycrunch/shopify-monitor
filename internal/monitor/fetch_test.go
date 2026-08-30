@@ -15,6 +15,14 @@ import (
 // ?limit=N&page=M, newest first, an empty page past the end.
 func fakeShop(t *testing.T, total int) *httptest.Server {
 	t.Helper()
+	srv, _ := fakeShopCounting(t, total)
+	return srv
+}
+
+// fakeShopCounting is fakeShop plus a record of which pages were requested.
+func fakeShopCounting(t *testing.T, total int) (*httptest.Server, *pageLog) {
+	t.Helper()
+	seen := &pageLog{}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Shopify's default when limit is omitted is 30 — the bug this guards.
@@ -26,6 +34,8 @@ func fakeShop(t *testing.T, total int) *httptest.Server {
 		if v, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && v > 0 {
 			page = v
 		}
+
+		seen.add(page, limit)
 
 		start := (page - 1) * limit
 		end := min(start+limit, total)
@@ -49,7 +59,26 @@ func fakeShop(t *testing.T, total int) *httptest.Server {
 	}))
 	t.Cleanup(srv.Close)
 
-	return srv
+	return srv, seen
+}
+
+type pageLog struct {
+	mu     sync.Mutex
+	pages  []int
+	limits []int
+}
+
+func (l *pageLog) add(page, limit int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.pages = append(l.pages, page)
+	l.limits = append(l.limits, limit)
+}
+
+func (l *pageLog) snapshot() ([]int, []int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]int(nil), l.pages...), append([]int(nil), l.limits...)
 }
 
 func TestFetchAllProductsPaginates(t *testing.T) {
@@ -73,7 +102,7 @@ func TestFetchAllProductsPaginates(t *testing.T) {
 			srv := fakeShop(t, tt.total)
 
 			got, err := FetchAllProducts(context.Background(), srv.URL,
-				func() *http.Client { return srv.Client() }, tt.concurrency)
+				func() *http.Client { return srv.Client() }, tt.concurrency, 0)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -103,7 +132,7 @@ func TestFetchAllProductsRequestsMaxPageSize(t *testing.T) {
 	srv := fakeShop(t, total)
 
 	got, err := FetchAllProducts(context.Background(), srv.URL,
-		func() *http.Client { return srv.Client() }, 3)
+		func() *http.Client { return srv.Client() }, 3, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +154,7 @@ func TestFetchAllProductsRotatesPerPage(t *testing.T) {
 		handedOut++
 		mu.Unlock()
 		return srv.Client()
-	}, 4)
+	}, 4, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,8 +171,75 @@ func TestFetchAllProductsPropagatesError(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	_, err := FetchAllProducts(context.Background(), srv.URL,
-		func() *http.Client { return srv.Client() }, 3)
+		func() *http.Client { return srv.Client() }, 3, 0)
 	if err == nil {
 		t.Fatal("expected an error when the store returns 429")
+	}
+}
+
+// @spec ACQ-DEPTH-001, ACQ-DEPTH-004
+func TestFetchAllProductsHonoursMaxProducts(t *testing.T) {
+	tests := []struct {
+		name        string
+		total       int
+		maxProducts int
+		want        int
+	}{
+		{"cap below one page truncates", 1000, 200, 200},
+		{"cap on a page boundary", 1000, pageSize, pageSize},
+		{"cap mid-catalogue", 5000, 600, 600},
+		{"cap above the catalogue returns all of it", 300, 5000, 300},
+		{"cap equal to the catalogue", 300, 300, 300},
+		{"zero means unlimited", 700, 0, 700},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := fakeShop(t, tt.total)
+
+			got, err := FetchAllProducts(context.Background(), srv.URL,
+				func() *http.Client { return srv.Client() }, 5, tt.maxProducts)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(got) != tt.want {
+				t.Errorf("got %d products, want %d", len(got), tt.want)
+			}
+		})
+	}
+}
+
+// A cap makes the page count knowable up front, so the crawl should ask for
+// exactly the pages it needs rather than speculating a batch past the end.
+//
+// @spec ACQ-DEPTH-002
+func TestFetchAllProductsDoesNotOverFetchWhenCapped(t *testing.T) {
+	srv, seen := fakeShopCounting(t, 100000)
+
+	if _, err := FetchAllProducts(context.Background(), srv.URL,
+		func() *http.Client { return srv.Client() }, 5, 200); err != nil {
+		t.Fatal(err)
+	}
+
+	pages, _ := seen.snapshot()
+	if len(pages) != 1 {
+		t.Errorf("requested %d pages (%v) for a 200-product cap; one page covers it", len(pages), pages)
+	}
+}
+
+// @spec ACQ-PAGE-007
+func TestFetchAllProductsUsesOnePageSizeThroughout(t *testing.T) {
+	srv, seen := fakeShopCounting(t, pageSize*3+10)
+
+	if _, err := FetchAllProducts(context.Background(), srv.URL,
+		func() *http.Client { return srv.Client() }, 2, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	_, limits := seen.snapshot()
+	for _, l := range limits {
+		if l != pageSize {
+			t.Fatalf("a page was requested with limit %d; page offsets only line up if every request uses %d", l, pageSize)
+		}
 	}
 }

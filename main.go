@@ -56,8 +56,9 @@ func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Con
 	if !ok {
 		return fmt.Errorf("%s: no 'webhook' column in header", cfg.WebsitesFile)
 	}
-	// Optional: absent means every store uses MONITOR_DELAY.
+	// Optional: absent means every store uses the global default.
 	delayCol, hasDelay := col["delay"]
+	maxProductsCol, hasMaxProducts := col["max_products"]
 
 	// Process each website. line counts the header, so it matches what an
 	// editor shows.
@@ -90,13 +91,27 @@ func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Con
 			}
 		}
 
+		// Per-store crawl depth. Live inventory sits at the front of a
+		// catalogue, so a large store is read only as deep as it is worth
+		// reading; 0 means the whole reachable catalogue.
+		maxProducts := cfg.MaxProducts
+		if hasMaxProducts && maxProductsCol < len(record) {
+			if raw := strings.TrimSpace(record[maxProductsCol]); raw != "" {
+				n, err := strconv.Atoi(raw)
+				if err != nil || n < 0 {
+					return fmt.Errorf("%s line %d: max_products %q must be zero or a positive number of products", cfg.WebsitesFile, line, raw)
+				}
+				maxProducts = n
+			}
+		}
+
 		// Add to the wait group
 		wg.Add(1)
 
 		// Start a goroutine for each website
 		go func() {
 			defer wg.Done()
-			m := monitor.NewMonitor(websiteURL, webhookURL, proxyManager, cfg.PageWorkers)
+			m := monitor.NewMonitor(websiteURL, webhookURL, proxyManager, cfg.PageWorkers, maxProducts)
 
 			// Retry rather than give up: the baseline fetch goes through the
 			// same rotating proxies as every later one, so a single timeout

@@ -22,13 +22,15 @@ A gitignored `.env` beside the Taskfile is picked up by `task run` and by
 pass the variables inline or use `task run`. A real environment variable takes
 precedence over `.env` either way.
 
-| Env var                 | Flag              | Default               | Description                                                |
-| ----------------------- | ----------------- | --------------------- | ---------------------------------------------------------- |
-| `MONITOR_DELAY`         | `--delay`         | `2500`                | Pause between polling cycles in ms. Recommended: 2000–5000 |
-| `MONITOR_WEBSITES_FILE` | `--websites-file` | `config/websites.csv` | CSV of store URL and webhook URL pairs                     |
-| `MONITOR_PROXIES_FILE`  | `--proxies-file`  | `config/proxies.txt`  | One proxy per line; optional                               |
-| `MONITOR_LOG_FORMAT`    | `--log-format`    | `text`                | `text` or `json`                                           |
-| `MONITOR_LOG_LEVEL`     | `--log-level`     | `info`                | `debug`, `info`, `warn`, or `error`                        |
+| Env var                 | Flag              | Default               | Description                                                              |
+| ----------------------- | ----------------- | --------------------- | ------------------------------------------------------------------------ |
+| `MONITOR_DELAY`         | `--delay`         | `2500`                | Pause between polling cycles in ms. Recommended: 2000–5000               |
+| `MONITOR_WEBSITES_FILE` | `--websites-file` | `config/websites.csv` | CSV of store URL and webhook URL pairs                                   |
+| `MONITOR_PROXIES_FILE`  | `--proxies-file`  | `config/proxies.txt`  | One proxy per line; optional                                             |
+| `MONITOR_LOG_FORMAT`    | `--log-format`    | `text`                | `text` or `json`                                                         |
+| `MONITOR_LOG_LEVEL`     | `--log-level`     | `info`                | `debug`, `info`, `warn`, or `error`                                      |
+| `MONITOR_PAGE_WORKERS`  | `--page-workers`  | `5`                   | Catalogue pages fetched at once, each through its own proxy              |
+| `MONITOR_MAX_PRODUCTS`  | `--max-products`  | `6000`                | Newest products crawled per store; `0` for the whole reachable catalogue |
 
 Logs go to stderr. `text` is readable at a terminal and in `journalctl`; set
 `json` where something parses the output, such as a container shipping to Loki
@@ -51,16 +53,39 @@ binary from elsewhere.
 ### config/websites.csv — Stores
 
 ```csv
-url,webhook
-https://kith.com,https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
+url,webhook,delay,max_products
+https://kith.com,https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN,300000,6000
+https://smallstore.com,https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN,60000,200
 ```
 
-| Column    | Description                                                     |
-| --------- | --------------------------------------------------------------- |
-| `url`     | Shopify store base URL — no trailing slash, no `/products.json` |
-| `webhook` | Discord webhook URL to receive alerts for that store            |
+| Column         | Description                                                                                                           |
+| -------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `url`          | Shopify store base URL — no trailing slash, no `/products.json`                                                       |
+| `webhook`      | Discord webhook URL to receive alerts for that store                                                                  |
+| `delay`        | Optional. Milliseconds to rest between crawls; falls back to `MONITOR_DELAY`                                          |
+| `max_products` | Optional. Newest products to crawl; `0` for the whole reachable catalogue, blank falls back to `MONITOR_MAX_PRODUCTS` |
 
-Add one row per store. Each store runs in its own goroutine.
+Columns are matched by header name, so order does not matter and the optional
+ones can be left out entirely. Add one row per store; each runs in its own
+goroutine.
+
+### Choosing `max_products`
+
+Products are returned newest-published first, and a stock change does not move a
+product, so crawl depth decides which products can be seen restocking. Live
+inventory sits at the front: on a large store the first few thousand products
+are mostly in stock, while past roughly 7,500 the catalogue is years old and
+effectively sold out. Crawling deeper costs bandwidth and makes a clean crawl
+less likely without adding much that can change.
+
+Set it to a store's whole catalogue when that is small — a store with 200
+products crawls in a single request — and to the depth where a large store's
+inventory stops being live otherwise. The default of 6,000 is about three months
+of a busy store.
+
+`0` disables the cap and crawls until the catalogue ends. Note that Shopify
+itself refuses to paginate past 25,000 products, so on a larger store `0` reaches
+that wall rather than the true end.
 
 ---
 
