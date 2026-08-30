@@ -222,6 +222,22 @@ flight.
 Because a poll cycle is a crawl followed by a wait, this deadline also bounds
 how long a store can go unpolled.
 
+### A failed page is retried before it counts as failed
+
+A page that fails is tried again a small number of times, each attempt drawing a
+different proxy. A retry through the same address would only re-ask the address
+that just failed; a retry through another one is a genuinely different question.
+
+This is bounded and deliberately small. The alternative to retrying a page is
+re-running the crawl, which on a large catalogue means re-issuing a hundred
+requests to recover one — and re-rolling a hundred fresh chances to fail. Since
+a baseline crawl must be complete, a crawl of many pages is otherwise unlikely
+to ever finish cleanly.
+
+A page refused for lying beyond the pagination limit is not retried: that is a
+definite answer about the catalogue, and every proxy will be told the same
+thing.
+
 ### A failed page is skipped, not fatal
 
 A page that fails does not fail the crawl. The pages that succeeded are kept,

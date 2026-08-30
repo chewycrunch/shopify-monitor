@@ -300,3 +300,115 @@ func TestFetchAllProductsFailsOnAFirstPageRejection(t *testing.T) {
 		t.Fatal("a 400 on page 1 should be an error, not an empty catalogue")
 	}
 }
+
+// A large catalogue is a hundred requests, and a baseline crawl must be
+// complete — so one transient failure must not cost the whole crawl. Each
+// attempt draws a fresh client, which in production means a different proxy.
+//
+// @spec ACQ-FAIL-011
+func TestFetchAllProductsRetriesAFailedPage(t *testing.T) {
+	var mu sync.Mutex
+	failuresLeft := 2
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		fail := failuresLeft > 0
+		if fail {
+			failuresLeft--
+		}
+		mu.Unlock()
+
+		if fail {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{"products": []map[string]any{
+			{"id": 1, "title": "p", "handle": "p",
+				"variants": []map[string]any{{"id": 1, "title": "S", "available": true}}},
+		}}); err != nil {
+			t.Errorf("encode: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	got, err := FetchAllProducts(context.Background(), srv.URL,
+		func() *http.Client { return srv.Client() }, 1, 0)
+	if err != nil {
+		t.Fatalf("a page that fails twice then succeeds should not fail the crawl: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("got %d products, want 1", len(got))
+	}
+}
+
+// @spec ACQ-FAIL-012
+func TestFetchAllProductsGivesUpAfterRepeatedPageFailures(t *testing.T) {
+	var mu sync.Mutex
+	attempts := 0
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		attempts++
+		mu.Unlock()
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+
+	if _, err := FetchAllProducts(context.Background(), srv.URL,
+		func() *http.Client { return srv.Client() }, 1, 0); err == nil {
+		t.Fatal("a page failing every attempt should fail the crawl")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if attempts != pageAttempts {
+		t.Errorf("page was attempted %d times, want %d", attempts, pageAttempts)
+	}
+}
+
+// The ceiling is a definite answer — retrying it through other proxies just
+// spends requests to be told the same thing.
+//
+// @spec ACQ-FAIL-013
+func TestFetchAllProductsDoesNotRetryThePaginationCeiling(t *testing.T) {
+	var mu sync.Mutex
+	beyond := 0
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := 1
+		if v, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && v > 0 {
+			page = v
+		}
+		if page > 1 {
+			mu.Lock()
+			beyond++
+			mu.Unlock()
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		products := make([]map[string]any, 0, pageSize)
+		for i := range pageSize {
+			products = append(products, map[string]any{
+				"id": i, "title": "p", "handle": "p",
+				"variants": []map[string]any{{"id": i, "title": "S", "available": true}},
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{"products": products}); err != nil {
+			t.Errorf("encode: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	if _, err := FetchAllProducts(context.Background(), srv.URL,
+		func() *http.Client { return srv.Client() }, 1, 0); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if beyond != 1 {
+		t.Errorf("page past the ceiling was requested %d times, want 1", beyond)
+	}
+}

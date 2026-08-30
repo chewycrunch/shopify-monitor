@@ -185,6 +185,14 @@ func (m *Monitor) nextClient() *http.Client {
 // counts as the end of the catalogue on a page after the first.
 var errPastPageLimit = errors.New("beyond the endpoint's pagination limit")
 
+// pageAttempts is how many times a single page is tried before the crawl gives
+// up on it. Each attempt draws a fresh proxy, so a retry is a different address
+// rather than the same one twice — which is what makes it worth doing at all.
+//
+// Kept small: the alternative to retrying a page is re-running the whole crawl,
+// and on a large catalogue that is a hundred requests re-rolled to recover one.
+const pageAttempts = 3
+
 // Shopify's ceiling for this endpoint. Omitting it defaults to 30, which caps a
 // monitor at the newest 30 products: ordering is by published_at, and a stock
 // change does not move a product, so restocks below that line are never seen.
@@ -238,12 +246,24 @@ func FetchAllProducts(ctx context.Context, shopifyBaseUrl string, nextClient fun
 			go func() {
 				defer wg.Done()
 				page := start + i
-				products, err := FetchProductPage(ctx, shopifyBaseUrl, page, nextClient())
-				if err != nil {
-					errs[i] = fmt.Errorf("page %d: %w", page, err)
-					return
+
+				var err error
+				for attempt := 1; attempt <= pageAttempts; attempt++ {
+					var products []utils.Product
+					products, err = FetchProductPage(ctx, shopifyBaseUrl, page, nextClient())
+					if err == nil {
+						pages[i] = products
+						return
+					}
+					// The pagination ceiling is an answer, not a failure; asking
+					// again through another proxy gets the same 400.
+					if errors.Is(err, errPastPageLimit) || ctx.Err() != nil {
+						errs[i] = fmt.Errorf("page %d: %w", page, err)
+						return
+					}
 				}
-				pages[i] = products
+
+				errs[i] = fmt.Errorf("page %d after %d attempts: %w", page, pageAttempts, err)
 			}()
 		}
 		wg.Wait()
