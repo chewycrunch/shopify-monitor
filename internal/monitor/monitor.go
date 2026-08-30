@@ -56,15 +56,7 @@ func (m *Monitor) InitializeVariants(ctx context.Context) error {
 		return err
 	}
 
-	counter := 0
-	for _, product := range res {
-		for _, variant := range product.Variants {
-			m.VariantMap[variant.ID] = variant.Available
-			counter++
-		}
-	}
-
-	m.log.Info("initialized variants", "count", counter)
+	m.log.Info("initialized variants", "count", m.recordBaseline(res))
 
 	return nil
 }
@@ -125,41 +117,37 @@ func (m *Monitor) StartWatching(ctx context.Context, duration time.Duration) err
 			failures = 0
 		}
 
-		for _, product := range res {
-			for _, variant := range product.Variants {
-				// Check if variant is in map
-				_, ok := m.VariantMap[variant.ID]
-				if !ok {
-					m.VariantMap[variant.ID] = variant.Available
-
-					// Variant is not in map (NEW VARIANT), send webhook
-					m.log.Info("new variant",
-						"product", product.Title,
-						"variant", variant.Title,
-						"variant_id", variant.ID,
-						"available", variant.Available,
-						"handle", product.Handle,
-					)
-					webhook.WebhookMaster.SendNewVariant()
-				} else if m.VariantMap[variant.ID] != variant.Available && variant.Available {
-					// Variant is in map and availability has changed to true,
-					// send webhook
-					m.VariantMap[variant.ID] = variant.Available
-
-					m.log.Info("restock",
-						"product", product.Title,
-						"variant", variant.Title,
-						"variant_id", variant.ID,
-						"handle", product.Handle,
-					)
-					webhook.WebhookMaster.SendVariantAvail()
-				}
-			}
+		for _, event := range m.detectChanges(res) {
+			m.report(event)
 		}
 
 		if !sleepCtx(ctx, duration) {
 			return ctx.Err()
 		}
+	}
+}
+
+// report announces a detected change.
+//
+// @spec DET-EVENT-006
+func (m *Monitor) report(e Event) {
+	switch e.Kind {
+	case NewVariant:
+		m.log.Info("new variant",
+			"product", e.Product.Title,
+			"variant", e.Variant.Title,
+			"variant_id", e.Variant.ID,
+			"handle", e.Product.Handle,
+		)
+		webhook.WebhookMaster.SendNewVariant()
+	case Restock:
+		m.log.Info("restock",
+			"product", e.Product.Title,
+			"variant", e.Variant.Title,
+			"variant_id", e.Variant.ID,
+			"handle", e.Product.Handle,
+		)
+		webhook.WebhookMaster.SendVariantAvail()
 	}
 }
 
