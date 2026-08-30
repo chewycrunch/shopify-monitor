@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,15 +34,34 @@ func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Con
 	}
 	defer file.Close()
 
-	// Parse the CSV file
+	// Columns are located by header name rather than position, so an existing
+	// two-column file keeps working when a third is added and the order of
+	// columns in the file does not matter.
 	reader := csv.NewReader(file)
-	_, err = reader.Read() // Disregard the header line
+	header, err := reader.Read()
 	if err != nil {
 		return fmt.Errorf("read websites header: %w", err)
 	}
 
-	// Process each website
-	for {
+	col := make(map[string]int, len(header))
+	for i, name := range header {
+		col[strings.ToLower(strings.TrimSpace(name))] = i
+	}
+
+	urlCol, ok := col["url"]
+	if !ok {
+		return fmt.Errorf("%s: no 'url' column in header", cfg.WebsitesFile)
+	}
+	webhookCol, ok := col["webhook"]
+	if !ok {
+		return fmt.Errorf("%s: no 'webhook' column in header", cfg.WebsitesFile)
+	}
+	// Optional: absent means every store uses MONITOR_DELAY.
+	delayCol, hasDelay := col["delay"]
+
+	// Process each website. line counts the header, so it matches what an
+	// editor shows.
+	for line := 2; ; line++ {
 		record, err := reader.Read()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -49,8 +70,25 @@ func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Con
 			return fmt.Errorf("read websites record: %w", err)
 		}
 
-		websiteURL := record[0]
-		webhookURL := record[1]
+		if urlCol >= len(record) || webhookCol >= len(record) {
+			return fmt.Errorf("%s line %d: missing url or webhook", cfg.WebsitesFile, line)
+		}
+		websiteURL := record[urlCol]
+		webhookURL := record[webhookCol]
+
+		// Per-store override. Stores that restock fast are worth polling hard;
+		// quiet ones are not worth the proxy bandwidth of a full crawl every
+		// few seconds. Blank falls back to the global default.
+		delay := time.Duration(cfg.Delay) * time.Millisecond
+		if hasDelay && delayCol < len(record) {
+			if raw := strings.TrimSpace(record[delayCol]); raw != "" {
+				ms, err := strconv.Atoi(raw)
+				if err != nil || ms <= 0 {
+					return fmt.Errorf("%s line %d: delay %q must be a positive number of milliseconds", cfg.WebsitesFile, line, raw)
+				}
+				delay = time.Duration(ms) * time.Millisecond
+			}
+		}
 
 		// Add to the wait group
 		wg.Add(1)
@@ -58,8 +96,7 @@ func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Con
 		// Start a goroutine for each website
 		go func() {
 			defer wg.Done()
-			delay := time.Duration(cfg.Delay) * time.Millisecond
-			m := monitor.NewMonitor(websiteURL, webhookURL, proxyManager)
+			m := monitor.NewMonitor(websiteURL, webhookURL, proxyManager, cfg.PageWorkers)
 
 			// Retry rather than give up: the baseline fetch goes through the
 			// same rotating proxies as every later one, so a single timeout
@@ -176,7 +213,7 @@ func run() error {
 	slog.Info("welcome to the shopify monitor", "build", config.Build)
 
 	// Initialize the proxy manager once and share it. Proxies are optional: an
-	// empty manager makes rotateClient fall back to a direct connection, so a
+	// empty manager makes nextClient fall back to a direct connection, so a
 	// missing file is a first-run default rather than an error.
 	shopifyProxyBroker, err := loadProxies(cfg.ProxiesFile)
 	if err != nil {

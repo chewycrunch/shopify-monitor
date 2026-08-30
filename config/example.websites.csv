@@ -1,2 +1,3 @@
-url,webhook
-https://kith.com,https://discord.com/api/webhooks/1234123412341234/abcdefgh
+url,webhook,delay
+https://kith.com,https://discord.com/api/webhooks/1234123412341234/abcdefgh,2500
+https://rsgoffroad.com,https://discord.com/api/webhooks/1234123412341234/abcdefgh,
