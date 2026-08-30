@@ -42,6 +42,9 @@ proxy rules below; they differ only where a spec names one of them.
 - [ ] **ACQ-FAIL-003**: If a page request fails during a watch crawl, then the system shall retain the pages that succeeded, record the failed page as missed, and continue the crawl rather than discarding it.
 - [ ] **ACQ-FAIL-004**: When a watch crawl completes with one or more missed pages, the system shall report how many pages were missed.
 - [ ] **ACQ-FAIL-005**: If a page request fails during a watch crawl, then the system shall not re-request that page within the same crawl.
+- [ ] **ACQ-FAIL-011**: If a catalogue page request fails, then the system shall retry that page, drawing a different proxy for each attempt, before treating the page as failed.
+- [ ] **ACQ-FAIL-012**: When a catalogue page has failed every permitted attempt, the system shall report how many attempts were made.
+- [ ] **ACQ-FAIL-013**: If a catalogue page is refused because it lies beyond the endpoint's pagination limit, then the system shall not retry that page.
 - [x] **ACQ-FAIL-006**: If any page request fails during a baseline crawl, then the system shall treat the entire baseline crawl as failed and shall not establish a partial baseline.
 - [x] **ACQ-FAIL-007**: When a baseline crawl fails, the system shall retry the baseline crawl in full until it completes or the process is shutting down.
 - [x] **ACQ-FAIL-008**: If a watch crawl fails entirely, then the system shall retry on the next cycle rather than ending that store's monitoring.
