@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chewycrunch/shopify-monitor/internal/proxy"
@@ -21,10 +22,14 @@ type Monitor struct {
 	WebhookUrl string
 	VariantMap map[int64]bool
 
-	client      *http.Client
 	proxyBroker *proxy.ProxyManager
+	pageWorkers int
 	log         *slog.Logger
 }
+
+// Every request carries a deadline: a hung proxy would otherwise park a crawl
+// goroutine forever, and the poll loop behind it with it.
+const requestTimeout = 20 * time.Second
 
 // normalizeBaseURL trims whitespace and trailing slashes, which the request
 // path is concatenated onto.
@@ -33,34 +38,25 @@ func normalizeBaseURL(raw string) string {
 }
 
 // Instanciates a new monitor given a store, webhook, and proxy manager instance
-func NewMonitor(url string, webhookUrl string, pb *proxy.ProxyManager) *Monitor {
+func NewMonitor(url string, webhookUrl string, pb *proxy.ProxyManager, pageWorkers int) *Monitor {
 	url = normalizeBaseURL(url)
 
 	// Bound once here so every line this monitor logs carries its site.
 	log := slog.Default().With("site", url)
 	log.Info("creating monitor")
-	return &Monitor{Url: url, WebhookUrl: webhookUrl, VariantMap: make(map[int64]bool), client: &http.Client{}, proxyBroker: pb, log: log}
+	return &Monitor{Url: url, WebhookUrl: webhookUrl, VariantMap: make(map[int64]bool), proxyBroker: pb, pageWorkers: pageWorkers, log: log}
 }
 
 // Initialize variants for the monitor
 func (m *Monitor) InitializeVariants(ctx context.Context) error {
 	m.log.Info("initializing variants")
 	// Fetch variants and load them into the map
-	m.rotateClient()
-	res, err := FetchProductData(ctx, m.Url, m.client)
+	res, err := FetchAllProducts(ctx, m.Url, m.nextClient, m.pageWorkers)
 	if err != nil {
 		return err
 	}
 
-	counter := 0
-	for _, product := range res {
-		for _, variant := range product.Variants {
-			m.VariantMap[variant.ID] = variant.Available
-			counter++
-		}
-	}
-
-	m.log.Info("initialized variants", "count", counter)
+	m.log.Info("initialized variants", "count", m.recordBaseline(res))
 
 	return nil
 }
@@ -97,8 +93,7 @@ func (m *Monitor) StartWatching(ctx context.Context, duration time.Duration) err
 		// delay it is the overwhelming majority of the log and says nothing
 		// beyond "still alive". The events below are what is worth reading.
 		m.log.Debug("refreshing")
-		m.rotateClient()
-		res, err := FetchProductData(ctx, m.Url, m.client)
+		res, err := FetchAllProducts(ctx, m.Url, m.nextClient, m.pageWorkers)
 		if err != nil {
 			// Give up only if the context is done — that is a real shutdown.
 			if ctx.Err() != nil {
@@ -122,36 +117,8 @@ func (m *Monitor) StartWatching(ctx context.Context, duration time.Duration) err
 			failures = 0
 		}
 
-		for _, product := range res {
-			for _, variant := range product.Variants {
-				// Check if variant is in map
-				_, ok := m.VariantMap[variant.ID]
-				if !ok {
-					m.VariantMap[variant.ID] = variant.Available
-
-					// Variant is not in map (NEW VARIANT), send webhook
-					m.log.Info("new variant",
-						"product", product.Title,
-						"variant", variant.Title,
-						"variant_id", variant.ID,
-						"available", variant.Available,
-						"handle", product.Handle,
-					)
-					webhook.WebhookMaster.SendNewVariant()
-				} else if m.VariantMap[variant.ID] != variant.Available && variant.Available {
-					// Variant is in map and availability has changed to true,
-					// send webhook
-					m.VariantMap[variant.ID] = variant.Available
-
-					m.log.Info("restock",
-						"product", product.Title,
-						"variant", variant.Title,
-						"variant_id", variant.ID,
-						"handle", product.Handle,
-					)
-					webhook.WebhookMaster.SendVariantAvail()
-				}
-			}
+		for _, event := range m.detectChanges(res) {
+			m.report(event)
 		}
 
 		if !sleepCtx(ctx, duration) {
@@ -160,36 +127,124 @@ func (m *Monitor) StartWatching(ctx context.Context, duration time.Duration) err
 	}
 }
 
-// Rotate proxy client (fallback to local client if no proxies available)
-func (m *Monitor) rotateClient() {
+// report announces a detected change.
+//
+// @spec DET-EVENT-006
+func (m *Monitor) report(e Event) {
+	switch e.Kind {
+	case NewVariant:
+		m.log.Info("new variant",
+			"product", e.Product.Title,
+			"variant", e.Variant.Title,
+			"variant_id", e.Variant.ID,
+			"handle", e.Product.Handle,
+		)
+		webhook.WebhookMaster.SendNewVariant()
+	case Restock:
+		m.log.Info("restock",
+			"product", e.Product.Title,
+			"variant", e.Variant.Title,
+			"variant_id", e.Variant.ID,
+			"handle", e.Product.Handle,
+		)
+		webhook.WebhookMaster.SendVariantAvail()
+	}
+}
+
+// nextClient returns a client bound to the next proxy in the rotation, or a
+// direct one if no proxy is usable.
+//
+// It returns a client rather than assigning one to the Monitor because a crawl
+// fetches its pages concurrently: sharing a mutable client field across those
+// goroutines would be a data race, and they each want a different proxy anyway.
+// Safe for concurrent use — ProxyManager.GetProxy holds a mutex.
+func (m *Monitor) nextClient() *http.Client {
 	proxy, err := m.proxyBroker.GetProxy()
 	if err != nil {
 		m.log.Warn("failed to get proxy, using local client", "err", err)
-		m.useLocalClient()
-		return
+		return &http.Client{Timeout: requestTimeout}
 	}
+
 	proxyUrl, err := url.Parse(proxy.Stringify())
 	if err != nil {
 		m.log.Warn("failed to parse proxy url, using local client", "err", err)
-		m.useLocalClient()
-		return
+		return &http.Client{Timeout: requestTimeout}
 	}
 
-	m.client = &http.Client{
-		Transport: &http.Transport{
-			Proxy: http.ProxyURL(proxyUrl),
-		},
+	return &http.Client{
+		Timeout:   requestTimeout,
+		Transport: &http.Transport{Proxy: http.ProxyURL(proxyUrl)},
+	}
+}
+
+// Shopify's ceiling for this endpoint. Omitting it defaults to 30, which caps a
+// monitor at the newest 30 products: ordering is by published_at, and a stock
+// change does not move a product, so restocks below that line are never seen.
+const pageSize = 250
+
+// FetchAllProducts walks every page of the catalog, newest first.
+//
+// Pages go out in concurrent batches. Two reasons beyond speed: each request
+// leaves through a different proxy, so Shopify sees one request per address
+// rather than a dozen from one (which it answers with 429); and the catalog is
+// ordered by published_at, so a product published mid-crawl shifts everything
+// down a slot and can slip across a page boundary already passed. A crawl that
+// takes one second instead of seven has far less room for that.
+//
+// nextClient is called once per page. It must be safe to call concurrently.
+func FetchAllProducts(ctx context.Context, shopifyBaseUrl string, nextClient func() *http.Client, concurrency int) ([]utils.Product, error) {
+	if concurrency < 1 {
+		concurrency = 1
 	}
 
+	var all []utils.Product
+
+	// The page count is unknown up front — Shopify reports no total — so this
+	// speculates a batch ahead and stops on the first short page. Overshooting
+	// costs a few empty responses, which are a few hundred bytes each.
+	for start := 1; ; start += concurrency {
+		pages := make([][]utils.Product, concurrency)
+		errs := make([]error, concurrency)
+
+		var wg sync.WaitGroup
+		for i := range concurrency {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				page := start + i
+				products, err := FetchProductPage(ctx, shopifyBaseUrl, page, nextClient())
+				if err != nil {
+					errs[i] = fmt.Errorf("page %d: %w", page, err)
+					return
+				}
+				pages[i] = products
+			}()
+		}
+		wg.Wait()
+
+		for _, err := range errs {
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Appended in page order so the result matches a sequential crawl.
+		for _, products := range pages {
+			all = append(all, products...)
+
+			// A short page is the last one. Anything fetched past it in this
+			// batch is beyond the end of the catalog.
+			if len(products) < pageSize {
+				return all, nil
+			}
+		}
+	}
 }
 
-// Use local client
-func (m *Monitor) useLocalClient() {
-	m.client = &http.Client{}
-}
+func FetchProductPage(ctx context.Context, shopifyBaseUrl string, page int, client *http.Client) ([]utils.Product, error) {
+	url := fmt.Sprintf("%s/products.json?limit=%d&page=%d", shopifyBaseUrl, pageSize, page)
 
-func FetchProductData(ctx context.Context, shopifyBaseUrl string, client *http.Client) ([]utils.Product, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, shopifyBaseUrl+"/products.json", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
