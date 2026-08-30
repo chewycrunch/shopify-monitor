@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -178,6 +179,12 @@ func (m *Monitor) nextClient() *http.Client {
 	}
 }
 
+// errPastPageLimit reports that a page lies beyond what the endpoint will
+// paginate to. Shopify answers such a request with 400, which is otherwise
+// indistinguishable from a malformed one — the difference is that this only
+// counts as the end of the catalogue on a page after the first.
+var errPastPageLimit = errors.New("beyond the endpoint's pagination limit")
+
 // Shopify's ceiling for this endpoint. Omitting it defaults to 30, which caps a
 // monitor at the newest 30 products: ordering is by published_at, and a stock
 // change does not move a product, so restocks below that line are never seen.
@@ -241,19 +248,27 @@ func FetchAllProducts(ctx context.Context, shopifyBaseUrl string, nextClient fun
 		}
 		wg.Wait()
 
-		for _, err := range errs {
-			if err != nil {
+		// Walked in page order, so the result matches a sequential crawl and a
+		// batch that ends the walk still keeps the pages before the one that
+		// ended it.
+		for i := range width {
+			page := start + i
+
+			if err := errs[i]; err != nil {
+				// Past the endpoint's pagination limit is the end of what can
+				// be read, not a failure — but only after page one, where a 400
+				// is a bad request rather than a boundary.
+				if errors.Is(err, errPastPageLimit) && page > 1 {
+					return truncate(all, maxProducts), nil
+				}
 				return nil, err
 			}
-		}
 
-		// Appended in page order so the result matches a sequential crawl.
-		for _, products := range pages {
-			all = append(all, products...)
+			all = append(all, pages[i]...)
 
 			// A short page is the last one. Anything fetched past it in this
 			// batch is beyond the end of the catalogue.
-			if len(products) < pageSize {
+			if len(pages[i]) < pageSize {
 				return truncate(all, maxProducts), nil
 			}
 		}
@@ -288,6 +303,9 @@ func FetchProductPage(ctx context.Context, shopifyBaseUrl string, page int, clie
 
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusBadRequest {
+		return nil, errPastPageLimit
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to fetch product data: %s", resp.Status)
 	}

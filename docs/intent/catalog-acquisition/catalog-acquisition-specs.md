@@ -16,6 +16,8 @@ proxy rules below; they differ only where a spec names one of them.
 - [x] **ACQ-PAGE-004**: When a crawl completes, the system shall present the products of all fetched pages in ascending page order, regardless of the order in which the pages were received.
 - [x] **ACQ-PAGE-005**: When reading a product from a catalogue page, the system shall read its identifier, title, and handle, and for each of its variants the variant's identifier, title, and availability.
 - [x] **ACQ-PAGE-006**: When a store's first catalogue page returns no products, the system shall complete the crawl reporting an empty catalogue rather than an error.
+- [ ] **ACQ-PAGE-008**: If a catalogue page after the first is refused because it lies beyond the endpoint's pagination limit, then the system shall end the crawl with the pages already read rather than failing it.
+- [ ] **ACQ-PAGE-009**: If the first catalogue page of a crawl is refused as a bad request, then the system shall fail the crawl.
 - [ ] **ACQ-PAGE-007**: The system shall request the same page size for every page of a crawl.
 - [ ] **ACQ-DEPTH-001**: When a store is configured with a maximum product count greater than zero, the system shall stop a crawl once it has collected that many products and shall return no more than that many.
 - [ ] **ACQ-DEPTH-002**: When a store is configured with a maximum product count greater than zero, the system shall request no more pages than are needed to reach that count.

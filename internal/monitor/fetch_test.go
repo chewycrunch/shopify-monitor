@@ -243,3 +243,60 @@ func TestFetchAllProductsUsesOnePageSizeThroughout(t *testing.T) {
 		}
 	}
 }
+
+// Shopify refuses to paginate past 25,000 products, answering with 400. A
+// catalogue larger than that has no short page, so without this the crawl walks
+// to the wall and fails — permanently, for the largest stores.
+//
+// @spec ACQ-PAGE-008
+func TestFetchAllProductsStopsAtThePaginationCeiling(t *testing.T) {
+	const ceiling = 8 // pages beyond this are refused
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := 1
+		if v, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && v > 0 {
+			page = v
+		}
+		if page > ceiling {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		products := make([]map[string]any, 0, pageSize)
+		for i := range pageSize {
+			id := (page-1)*pageSize + i
+			products = append(products, map[string]any{
+				"id": id, "title": "p", "handle": "p",
+				"variants": []map[string]any{{"id": id, "title": "S", "available": true}},
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{"products": products}); err != nil {
+			t.Errorf("encode: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	got, err := FetchAllProducts(context.Background(), srv.URL,
+		func() *http.Client { return srv.Client() }, 5, 0)
+	if err != nil {
+		t.Fatalf("hitting the pagination ceiling should end the crawl, not fail it: %v", err)
+	}
+	if want := ceiling * pageSize; len(got) != want {
+		t.Errorf("got %d products, want %d — everything up to the ceiling", len(got), want)
+	}
+}
+
+// A 400 on the very first page is a malformed request, not a boundary.
+//
+// @spec ACQ-PAGE-009
+func TestFetchAllProductsFailsOnAFirstPageRejection(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	t.Cleanup(srv.Close)
+
+	if _, err := FetchAllProducts(context.Background(), srv.URL,
+		func() *http.Client { return srv.Client() }, 5, 0); err == nil {
+		t.Fatal("a 400 on page 1 should be an error, not an empty catalogue")
+	}
+}
