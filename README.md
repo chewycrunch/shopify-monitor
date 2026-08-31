@@ -17,20 +17,26 @@ connections. Run `go run main.go --help` for the full generated option list.
 Settings come from environment variables or flags; the runtime data files live
 in [config/](config/), which is gitignored apart from the `example.*` templates.
 
+Settings a store can override for itself are named `MONITOR_DEFAULT_*`. They
+resolve in three layers: the built-in value, then the environment, then that
+store's own column in the stores file. Settings without the prefix apply to the
+whole process. The former `MONITOR_DELAY` and `MONITOR_MAX_PRODUCTS` names are
+refused at startup rather than ignored.
+
 A gitignored `.env` beside the Taskfile is picked up by `task run` and by
 `docker compose`. Nothing else reads it — a bare `go run main.go` ignores it, so
 pass the variables inline or use `task run`. A real environment variable takes
 precedence over `.env` either way.
 
-| Env var                 | Flag              | Default               | Description                                                              |
-| ----------------------- | ----------------- | --------------------- | ------------------------------------------------------------------------ |
-| `MONITOR_DELAY`         | `--delay`         | `5000`                | Rest between crawls in ms; a store's own `delay` overrides it            |
-| `MONITOR_WEBSITES_FILE` | `--websites-file` | `config/websites.csv` | CSV of store URL and webhook URL pairs                                   |
-| `MONITOR_PROXIES_FILE`  | `--proxies-file`  | `config/proxies.txt`  | One proxy per line; optional                                             |
-| `MONITOR_LOG_FORMAT`    | `--log-format`    | `text`                | `text` or `json`                                                         |
-| `MONITOR_LOG_LEVEL`     | `--log-level`     | `info`                | `debug`, `info`, `warn`, or `error`                                      |
-| `MONITOR_PAGE_WORKERS`  | `--page-workers`  | `5`                   | Catalogue pages fetched at once, each through its own proxy              |
-| `MONITOR_MAX_PRODUCTS`  | `--max-products`  | `6000`                | Newest products crawled per store; `0` for the whole reachable catalogue |
+| Env var                        | Flag                     | Default               | Description                                                                                                        |
+| ------------------------------ | ------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `MONITOR_DEFAULT_DELAY`        | `--default-delay`        | `5000`                | Rest between crawls in ms, for stores that set no `delay` of their own                                             |
+| `MONITOR_DEFAULT_MAX_PRODUCTS` | `--default-max-products` | `6000`                | Newest products crawled, for stores that set no `max_products` of their own; `0` for the whole reachable catalogue |
+| `MONITOR_WEBSITES_FILE`        | `--websites-file`        | `config/websites.csv` | CSV of store URL and webhook URL pairs                                                                             |
+| `MONITOR_PROXIES_FILE`         | `--proxies-file`         | `config/proxies.txt`  | One proxy per line; optional                                                                                       |
+| `MONITOR_LOG_FORMAT`           | `--log-format`           | `text`                | `text` or `json`                                                                                                   |
+| `MONITOR_LOG_LEVEL`            | `--log-level`            | `info`                | `debug`, `info`, `warn`, or `error`                                                                                |
+| `MONITOR_PAGE_WORKERS`         | `--page-workers`         | `5`                   | Catalogue pages fetched at once, each through its own proxy                                                        |
 
 Logs go to stderr. `text` is readable at a terminal and in `journalctl`; set
 `json` where something parses the output, such as a container shipping to Loki
@@ -58,12 +64,12 @@ https://kith.com,https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN,300000,6000
 https://smallstore.com,https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN,60000,200
 ```
 
-| Column         | Description                                                                                                           |
-| -------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `url`          | Shopify store base URL — no trailing slash, no `/products.json`                                                       |
-| `webhook`      | Discord webhook URL to receive alerts for that store                                                                  |
-| `delay`        | Optional. Milliseconds to rest between crawls; falls back to `MONITOR_DELAY`                                          |
-| `max_products` | Optional. Newest products to crawl; `0` for the whole reachable catalogue, blank falls back to `MONITOR_MAX_PRODUCTS` |
+| Column         | Description                                                                                                                   |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `url`          | Shopify store base URL — no trailing slash, no `/products.json`                                                               |
+| `webhook`      | Discord webhook URL to receive alerts for that store                                                                          |
+| `delay`        | Optional. Milliseconds to rest between crawls; falls back to `MONITOR_DEFAULT_DELAY`                                          |
+| `max_products` | Optional. Newest products to crawl; `0` for the whole reachable catalogue, blank falls back to `MONITOR_DEFAULT_MAX_PRODUCTS` |
 
 Columns are matched by header name, so order does not matter and the optional
 ones can be left out entirely. Add one row per store; each runs in its own
