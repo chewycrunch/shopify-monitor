@@ -14,9 +14,9 @@ const (
 func parse(t *testing.T, csv string) ([]Store, error) {
 	t.Helper()
 	cfg := Config{
-		WebsitesFile: "websites.csv",
-		Delay:        int(testDelay / time.Millisecond),
-		MaxProducts:  testMax,
+		WebsitesFile:       "websites.csv",
+		DefaultDelay:       int(testDelay / time.Millisecond),
+		DefaultMaxProducts: testMax,
 	}
 	return cfg.ParseStores(strings.NewReader(csv))
 }
@@ -113,5 +113,23 @@ func TestParseStoresReportsTheEditorsLineNumber(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "line 4") {
 		t.Errorf("error %q should name line 4", err)
+	}
+}
+
+// An unrecognised MONITOR_* variable is ignored, so a former name would
+// otherwise leave the setting at its built-in value while looking configured.
+func TestLoadRefusesRenamedSettings(t *testing.T) {
+	for old, current := range aliases {
+		t.Run(old, func(t *testing.T) {
+			t.Setenv(old, "1")
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("%s should be refused, not ignored", old)
+			}
+			if !strings.Contains(err.Error(), current) {
+				t.Errorf("error %q should name the current setting %q", err, current)
+			}
+		})
 	}
 }

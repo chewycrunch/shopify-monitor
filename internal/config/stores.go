@@ -34,8 +34,8 @@ type Store struct {
 // @spec CFG-STORES-001, CFG-STORES-002, CFG-STORES-003, CFG-STORES-004, CFG-VALID-001, CFG-VALID-002, CFG-VALID-003, CFG-VALID-004, CFG-VALID-005, CFG-VALID-006, CFG-VALID-007, CFG-VALID-008, CFG-VALID-009
 func (c Config) ParseStores(r io.Reader) ([]Store, error) {
 	path := c.WebsitesFile
-	defaultDelay := time.Duration(c.Delay) * time.Millisecond
-	defaultMaxProducts := c.MaxProducts
+	defaultDelay := time.Duration(c.DefaultDelay) * time.Millisecond
+	defaultMaxProducts := c.DefaultMaxProducts
 
 	reader := csv.NewReader(r)
 	// Rows may be shorter than the header when trailing optional columns are

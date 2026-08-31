@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/ardanlabs/conf/v3"
 )
@@ -14,28 +15,37 @@ const prefix = "MONITOR"
 var Build = "develop"
 
 // Config holds the runtime settings for the monitor.
-//
-// The file paths are deliberately relative. The Dockerfile's WORKDIR is /app,
-// so mounting the host's config directory at /app/config makes these defaults
-// resolve in a container exactly as they do for `go run main.go` from the repo
-// root — one default, both environments, no override needed. Running the built
-// binary from anywhere else is what the env vars are for.
 type Config struct {
-	Delay        int    `conf:"default:5000,help:rest between crawls in milliseconds; per-store delay in the stores file overrides it"`
+	// Per-store defaults. Can be overwritten by website
+	DefaultDelay       int `conf:"default:5000,help:rest between crawls in milliseconds for stores that set no delay of their own"`
+	DefaultMaxProducts int `conf:"default:6000,help:newest products crawled for stores that set no max_products of their own; 0 for the whole reachable catalogue"`
+
+	// Data files
 	WebsitesFile string `conf:"default:config/websites.csv,help:CSV of store URL and webhook URL pairs"`
 	ProxiesFile  string `conf:"default:config/proxies.txt,help:one proxy per line with optional basic auth; direct connections if absent"`
-	LogFormat    string `conf:"default:text,help:log output format: text or json"`
-	LogLevel     string `conf:"default:info,help:debug info warn or error; debug adds a line per poll"`
-	PageWorkers  int    `conf:"default:5,help:catalog pages fetched at once; each goes through its own proxy"`
-	MaxProducts  int    `conf:"default:6000,help:newest products crawled per store; 0 for the whole reachable catalogue"`
+
+	// Internal stuff
+	LogFormat string `conf:"default:text,help:log output format: text or json"`
+	LogLevel  string `conf:"default:info,help:debug info warn or error; debug adds a line per poll"`
+
+	// Application performance
+	PageWorkers int `conf:"default:5,help:catalog pages fetched at once; each goes through its own proxy"`
+}
+
+// aliases maps former environment variable names to current ones.
+var aliases = map[string]string{
+	"MONITOR_DELAY":        "MONITOR_DEFAULT_DELAY",
+	"MONITOR_MAX_PRODUCTS": "MONITOR_DEFAULT_MAX_PRODUCTS",
 }
 
 // Load resolves the monitor configuration from environment variables and flags.
-//
-// ErrHelpWanted is not a failure: conf returns the rendered usage text alongside
-// it, and printing that is the whole point of --help. Callers get it back
-// unwrapped so they can exit zero rather than reporting it as a crash.
 func Load() (Config, error) {
+	for old, current := range aliases {
+		if os.Getenv(old) != "" {
+			return Config{}, fmt.Errorf("%s has been renamed to %s; the old name is no longer read", old, current)
+		}
+	}
+
 	var cfg Config
 	help, err := conf.Parse(prefix, &cfg)
 	if err != nil {
