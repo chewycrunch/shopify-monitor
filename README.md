@@ -24,7 +24,7 @@ precedence over `.env` either way.
 
 | Env var                 | Flag              | Default               | Description                                                              |
 | ----------------------- | ----------------- | --------------------- | ------------------------------------------------------------------------ |
-| `MONITOR_DELAY`         | `--delay`         | `2500`                | Pause between polling cycles in ms. Recommended: 2000–5000               |
+| `MONITOR_DELAY`         | `--delay`         | `5000`                | Rest between crawls in ms; a store's own `delay` overrides it            |
 | `MONITOR_WEBSITES_FILE` | `--websites-file` | `config/websites.csv` | CSV of store URL and webhook URL pairs                                   |
 | `MONITOR_PROXIES_FILE`  | `--proxies-file`  | `config/proxies.txt`  | One proxy per line; optional                                             |
 | `MONITOR_LOG_FORMAT`    | `--log-format`    | `text`                | `text` or `json`                                                         |

@@ -21,7 +21,7 @@ var Build = "develop"
 // root — one default, both environments, no override needed. Running the built
 // binary from anywhere else is what the env vars are for.
 type Config struct {
-	Delay        int    `conf:"default:2500,help:pause between polling cycles in milliseconds"`
+	Delay        int    `conf:"default:5000,help:rest between crawls in milliseconds; per-store delay in the stores file overrides it"`
 	WebsitesFile string `conf:"default:config/websites.csv,help:CSV of store URL and webhook URL pairs"`
 	ProxiesFile  string `conf:"default:config/proxies.txt,help:one proxy per line with optional basic auth; direct connections if absent"`
 	LogFormat    string `conf:"default:text,help:log output format: text or json"`
