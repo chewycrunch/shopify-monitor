@@ -16,13 +16,13 @@ proxy rules below; they differ only where a spec names one of them.
 - [x] **ACQ-PAGE-004**: When a crawl completes, the system shall present the products of all fetched pages in ascending page order, regardless of the order in which the pages were received.
 - [x] **ACQ-PAGE-005**: When reading a product from a catalogue page, the system shall read its identifier, title, and handle, and for each of its variants the variant's identifier, title, and availability.
 - [x] **ACQ-PAGE-006**: When a store's first catalogue page returns no products, the system shall complete the crawl reporting an empty catalogue rather than an error.
-- [ ] **ACQ-PAGE-008**: If a catalogue page after the first is refused because it lies beyond the endpoint's pagination limit, then the system shall end the crawl with the pages already read rather than failing it.
-- [ ] **ACQ-PAGE-009**: If the first catalogue page of a crawl is refused as a bad request, then the system shall fail the crawl.
-- [ ] **ACQ-PAGE-007**: The system shall request the same page size for every page of a crawl.
-- [ ] **ACQ-DEPTH-001**: When a store is configured with a maximum product count greater than zero, the system shall stop a crawl once it has collected that many products and shall return no more than that many.
-- [ ] **ACQ-DEPTH-002**: When a store is configured with a maximum product count greater than zero, the system shall request no more pages than are needed to reach that count.
-- [ ] **ACQ-DEPTH-003**: Where a store is configured with a maximum product count of zero, the system shall crawl until the catalogue ends rather than stopping at a product count.
-- [ ] **ACQ-DEPTH-004**: When a store's catalogue ends before its configured maximum product count is reached, the system shall complete the crawl with the products the catalogue held.
+- [x] **ACQ-PAGE-008**: If a catalogue page after the first is refused because it lies beyond the endpoint's pagination limit, then the system shall end the crawl with the pages already read rather than failing it.
+- [x] **ACQ-PAGE-009**: If the first catalogue page of a crawl is refused as a bad request, then the system shall fail the crawl.
+- [x] **ACQ-PAGE-007**: The system shall request the same page size for every page of a crawl.
+- [x] **ACQ-DEPTH-001**: When a store is configured with a maximum product count greater than zero, the system shall stop a crawl once it has collected that many products and shall return no more than that many.
+- [x] **ACQ-DEPTH-002**: When a store is configured with a maximum product count greater than zero, the system shall request no more pages than are needed to reach that count.
+- [x] **ACQ-DEPTH-003**: Where a store is configured with a maximum product count of zero, the system shall crawl until the catalogue ends rather than stopping at a product count.
+- [x] **ACQ-DEPTH-004**: When a store's catalogue ends before its configured maximum product count is reached, the system shall complete the crawl with the products the catalogue held.
 
 ## Proxy rotation
 
@@ -41,15 +41,14 @@ proxy rules below; they differ only where a spec names one of them.
 - [ ] **ACQ-FAIL-002**: The system shall abandon a crawl that has not completed within the configured crawl deadline, cancelling any page requests still in flight.
 - [ ] **ACQ-FAIL-003**: If a page request fails during a watch crawl, then the system shall retain the pages that succeeded, record the failed page as missed, and continue the crawl rather than discarding it.
 - [ ] **ACQ-FAIL-004**: When a watch crawl completes with one or more missed pages, the system shall report how many pages were missed.
-- [ ] **ACQ-FAIL-005**: If a page request fails during a watch crawl, then the system shall not re-request that page within the same crawl.
-- [ ] **ACQ-FAIL-011**: If a catalogue page request fails, then the system shall retry that page, drawing a different proxy for each attempt, before treating the page as failed.
-- [ ] **ACQ-FAIL-012**: When a catalogue page has failed every permitted attempt, the system shall report how many attempts were made.
-- [ ] **ACQ-FAIL-013**: If a catalogue page is refused because it lies beyond the endpoint's pagination limit, then the system shall not retry that page.
 - [x] **ACQ-FAIL-006**: If any page request fails during a baseline crawl, then the system shall treat the entire baseline crawl as failed and shall not establish a partial baseline.
 - [x] **ACQ-FAIL-007**: When a baseline crawl fails, the system shall retry the baseline crawl in full until it completes or the process is shutting down.
 - [x] **ACQ-FAIL-008**: If a watch crawl fails entirely, then the system shall retry on the next cycle rather than ending that store's monitoring.
 - [x] **ACQ-FAIL-009**: While consecutive watch crawls for a store are failing, the system shall report each failure with the number of consecutive failures so far.
 - [x] **ACQ-FAIL-010**: When a watch crawl succeeds for a store whose previous crawl failed, the system shall report the recovery once, naming how many consecutive failures preceded it.
+- [x] **ACQ-FAIL-011**: If a catalogue page request fails, then the system shall retry that page, drawing a different proxy for each attempt, before treating the page as failed.
+- [x] **ACQ-FAIL-012**: When a catalogue page has failed every permitted attempt, the system shall report how many attempts were made.
+- [x] **ACQ-FAIL-013**: If a catalogue page is refused because it lies beyond the endpoint's pagination limit, then the system shall not retry that page.
 
 ## Poll cadence
 
