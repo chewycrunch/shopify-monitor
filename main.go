@@ -31,8 +31,7 @@ func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Con
 	}
 	defer file.Close()
 
-	stores, err := parseStores(file, cfg.WebsitesFile,
-		time.Duration(cfg.Delay)*time.Millisecond, cfg.MaxProducts)
+	stores, err := cfg.ParseStores(file)
 	if err != nil {
 		return err
 	}

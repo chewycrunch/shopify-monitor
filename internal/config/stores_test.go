@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"strings"
@@ -11,9 +11,14 @@ const (
 	testMax   = 6000
 )
 
-func parse(t *testing.T, csv string) ([]storeConfig, error) {
+func parse(t *testing.T, csv string) ([]Store, error) {
 	t.Helper()
-	return parseStores(strings.NewReader(csv), "websites.csv", testDelay, testMax)
+	cfg := Config{
+		WebsitesFile: "websites.csv",
+		Delay:        int(testDelay / time.Millisecond),
+		MaxProducts:  testMax,
+	}
+	return cfg.ParseStores(strings.NewReader(csv))
 }
 
 // @spec CFG-STORES-001, CFG-STORES-003

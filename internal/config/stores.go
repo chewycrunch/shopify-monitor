@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"encoding/csv"
@@ -11,16 +11,17 @@ import (
 	"time"
 )
 
-// storeConfig is one monitored store, with its per-store settings already
-// resolved against the global defaults.
-type storeConfig struct {
+// Store is one monitored store, with its per-store settings already resolved
+// against the global defaults.
+type Store struct {
 	URL         string
 	WebhookURL  string
 	Delay       time.Duration
 	MaxProducts int
 }
 
-// parseStores reads the stores file.
+// ParseStores reads the stores file named by this Config, resolving each
+// store's settings against the Config's defaults.
 //
 // Anything that cannot possibly work is refused here rather than at the point
 // of use. A store with no destination for its alerts polls, diffs, and finds
@@ -31,7 +32,11 @@ type storeConfig struct {
 // is not, and a store being briefly down should not stop the monitor booting.
 //
 // @spec CFG-STORES-001, CFG-STORES-002, CFG-STORES-003, CFG-STORES-004, CFG-VALID-001, CFG-VALID-002, CFG-VALID-003, CFG-VALID-004, CFG-VALID-005, CFG-VALID-006, CFG-VALID-007, CFG-VALID-008, CFG-VALID-009
-func parseStores(r io.Reader, path string, defaultDelay time.Duration, defaultMaxProducts int) ([]storeConfig, error) {
+func (c Config) ParseStores(r io.Reader) ([]Store, error) {
+	path := c.WebsitesFile
+	defaultDelay := time.Duration(c.Delay) * time.Millisecond
+	defaultMaxProducts := c.MaxProducts
+
 	reader := csv.NewReader(r)
 	// Rows may be shorter than the header when trailing optional columns are
 	// left off entirely.
@@ -66,7 +71,7 @@ func parseStores(r io.Reader, path string, defaultDelay time.Duration, defaultMa
 		return strings.TrimSpace(record[i])
 	}
 
-	var stores []storeConfig
+	var stores []Store
 
 	// The header is line 1, so rows start at 2 and the number matches an editor.
 	for line := 2; ; line++ {
@@ -83,7 +88,7 @@ func parseStores(r io.Reader, path string, defaultDelay time.Duration, defaultMa
 			continue
 		}
 
-		store := storeConfig{
+		store := Store{
 			URL:         cell(record, urlCol),
 			WebhookURL:  cell(record, webhookCol),
 			Delay:       defaultDelay,
