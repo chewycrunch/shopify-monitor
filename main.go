@@ -2,14 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/csv"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -25,8 +22,8 @@ import (
 // If so, send a webhook to the webhook URL
 var wg sync.WaitGroup
 
-// Spawns one monitor goroutine per website in cfg.WebsitesFile and returns;
-// the goroutines it starts are tracked on wg.
+// Spawns one monitor goroutine per store in cfg.WebsitesFile and returns; the
+// goroutines it starts are tracked on wg.
 func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Config, proxyManager *proxy.ProxyManager) error {
 	file, err := os.Open(cfg.WebsitesFile)
 	if err != nil {
@@ -34,88 +31,21 @@ func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Con
 	}
 	defer file.Close()
 
-	// Columns are located by header name rather than position, so an existing
-	// two-column file keeps working when a third is added and the order of
-	// columns in the file does not matter.
-	reader := csv.NewReader(file)
-	header, err := reader.Read()
+	stores, err := cfg.ParseStores(file)
 	if err != nil {
-		return fmt.Errorf("read websites header: %w", err)
+		return err
 	}
 
-	col := make(map[string]int, len(header))
-	for i, name := range header {
-		col[strings.ToLower(strings.TrimSpace(name))] = i
-	}
-
-	urlCol, ok := col["url"]
-	if !ok {
-		return fmt.Errorf("%s: no 'url' column in header", cfg.WebsitesFile)
-	}
-	webhookCol, ok := col["webhook"]
-	if !ok {
-		return fmt.Errorf("%s: no 'webhook' column in header", cfg.WebsitesFile)
-	}
-	// Optional: absent means every store uses the global default.
-	delayCol, hasDelay := col["delay"]
-	maxProductsCol, hasMaxProducts := col["max_products"]
-
-	// Process each website. line counts the header, so it matches what an
-	// editor shows.
-	for line := 2; ; line++ {
-		record, err := reader.Read()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return fmt.Errorf("read websites record: %w", err)
-		}
-
-		if urlCol >= len(record) || webhookCol >= len(record) {
-			return fmt.Errorf("%s line %d: missing url or webhook", cfg.WebsitesFile, line)
-		}
-		websiteURL := record[urlCol]
-		webhookURL := record[webhookCol]
-
-		// Per-store override. Stores that restock fast are worth polling hard;
-		// quiet ones are not worth the proxy bandwidth of a full crawl every
-		// few seconds. Blank falls back to the global default.
-		delay := time.Duration(cfg.Delay) * time.Millisecond
-		if hasDelay && delayCol < len(record) {
-			if raw := strings.TrimSpace(record[delayCol]); raw != "" {
-				ms, err := strconv.Atoi(raw)
-				if err != nil || ms <= 0 {
-					return fmt.Errorf("%s line %d: delay %q must be a positive number of milliseconds", cfg.WebsitesFile, line, raw)
-				}
-				delay = time.Duration(ms) * time.Millisecond
-			}
-		}
-
-		// Per-store crawl depth. Live inventory sits at the front of a
-		// catalogue, so a large store is read only as deep as it is worth
-		// reading; 0 means the whole reachable catalogue.
-		maxProducts := cfg.MaxProducts
-		if hasMaxProducts && maxProductsCol < len(record) {
-			if raw := strings.TrimSpace(record[maxProductsCol]); raw != "" {
-				n, err := strconv.Atoi(raw)
-				if err != nil || n < 0 {
-					return fmt.Errorf("%s line %d: max_products %q must be zero or a positive number of products", cfg.WebsitesFile, line, raw)
-				}
-				maxProducts = n
-			}
-		}
-
-		// Add to the wait group
+	for _, store := range stores {
 		wg.Add(1)
 
-		// Start a goroutine for each website
 		go func() {
 			defer wg.Done()
-			m := monitor.NewMonitor(websiteURL, webhookURL, proxyManager, cfg.PageWorkers, maxProducts)
+			m := monitor.NewMonitor(store.URL, store.WebhookURL, proxyManager, cfg.PageWorkers, store.MaxProducts)
 
 			// Retry rather than give up: the baseline fetch goes through the
 			// same rotating proxies as every later one, so a single timeout
-			// here would otherwise drop this site for the life of the process.
+			// here would otherwise drop this store for the life of the process.
 			for attempt := 1; ; attempt++ {
 				err := m.InitializeVariants(ctx)
 				if err == nil {
@@ -130,15 +60,14 @@ func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Con
 				select {
 				case <-ctx.Done():
 					return
-				case <-time.After(delay):
+				case <-time.After(store.Delay):
 				}
 			}
 
-			if err := m.StartWatching(ctx, delay); err != nil {
+			if err := m.StartWatching(ctx, store.Delay); err != nil {
 				slog.Error("stopped watching", "site", m.Url, "err", err)
 			}
 		}()
-
 	}
 
 	return nil

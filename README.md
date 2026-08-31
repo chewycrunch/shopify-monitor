@@ -69,6 +69,14 @@ Columns are matched by header name, so order does not matter and the optional
 ones can be left out entirely. Add one row per store; each runs in its own
 goroutine.
 
+The file is validated at startup and a problem is fatal, naming the line as your
+editor numbers it. `url` and `webhook` must both be present and absolute `http`
+or `https` URLs, `delay` must be a positive whole number, `max_products` zero or
+positive, and the file must contain at least one store. Nothing is contacted to
+check it — a store or webhook being briefly down will not stop the monitor
+starting. A store with a blank `webhook` is refused rather than run, because one
+that finds restocks and reports them nowhere looks exactly like a healthy one.
+
 ### Choosing `max_products`
 
 Products are returned newest-published first, and a stock change does not move a
