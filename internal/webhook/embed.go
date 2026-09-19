@@ -6,11 +6,31 @@ import (
 )
 
 type Embed struct {
-	Title       *string      `json:"title,omitempty"`
-	Description *string      `json:"description,omitempty"`
-	Color       *int         `json:"color"`
-	Timestamp   *string      `json:"timestamp,omitempty"`
-	Fields      []EmbedField `json:"fields,omitempty"`
+	Title       *string         `json:"title,omitempty"`
+	URL         *string         `json:"url,omitempty"`
+	Description *string         `json:"description,omitempty"`
+	Color       *int            `json:"color"`
+	Timestamp   *string         `json:"timestamp,omitempty"`
+	Thumbnail   *EmbedThumbnail `json:"thumbnail,omitempty"`
+	Fields      []EmbedField    `json:"fields,omitempty"`
+}
+
+// EmbedThumbnail is the small image Discord renders beside an embed.
+type EmbedThumbnail struct {
+	URL string `json:"url"`
+}
+
+// SetURL makes the embed title a link.
+func (e *Embed) SetURL(url string) *Embed {
+	e.URL = &url
+	return e
+}
+
+// SetThumbnail attaches an image. Products without one are alerted without it
+// rather than withheld.
+func (e *Embed) SetThumbnail(url string) *Embed {
+	e.Thumbnail = &EmbedThumbnail{URL: url}
+	return e
 }
 
 // NewEmbed creates a new Embed object

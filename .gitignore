@@ -21,6 +21,9 @@
 go.work
 go.work.sum
 
+# macOS finder metadata
+.DS_Store
+
 /config/*
 !/config/example*
 # Local runtime env; compose reads it via env_file

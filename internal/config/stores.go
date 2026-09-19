@@ -18,6 +18,11 @@ type Store struct {
 	WebhookURL  string
 	Delay       time.Duration
 	MaxProducts int
+
+	// Line is the row this store was read from. Validation that cannot happen
+	// during parsing — recognising a webhook's destination needs the segment
+	// that delivers to it — still has to tell the operator which row to fix.
+	Line int
 }
 
 // ParseStores reads the stores file named by this Config, resolving each
@@ -93,6 +98,7 @@ func (c Config) ParseStores(r io.Reader) ([]Store, error) {
 			WebhookURL:  cell(record, webhookCol),
 			Delay:       defaultDelay,
 			MaxProducts: defaultMaxProducts,
+			Line:        line,
 		}
 
 		if err := requireHTTPURL(store.URL, "url", path, line); err != nil {

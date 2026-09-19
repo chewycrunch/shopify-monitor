@@ -37,6 +37,19 @@ precedence over `.env` either way.
 | `MONITOR_LOG_FORMAT`           | `--log-format`           | `text`                | `text` or `json`                                                                                                   |
 | `MONITOR_LOG_LEVEL`            | `--log-level`            | `info`                | `debug`, `info`, `warn`, or `error`                                                                                |
 | `MONITOR_PAGE_WORKERS`         | `--page-workers`         | `5`                   | Catalogue pages fetched at once, each through its own proxy                                                        |
+| `MONITOR_WEBHOOK_MIN_INTERVAL` | `--webhook-min-interval` | `0`                   | Smallest gap in ms between requests to one webhook; `0` paces by the allowance the webhook itself reports          |
+
+Alerts are delivered asynchronously, so a store that reports hundreds of
+restocks in one cycle never holds up its own polling. Each webhook gets its own
+queue and is paced by the request allowance Discord reports on every response,
+so `MONITOR_WEBHOOK_MIN_INTERVAL` is only consulted for a webhook that reports
+none. Two stores naming the same webhook share one queue and one budget, because
+that is how the limit is imposed.
+
+A webhook that keeps failing — deleted, revoked, or persistently unreachable —
+is disabled until the next restart, and the stores that named it keep polling
+and keep logging. On `SIGINT` or `SIGTERM` the monitor stops accepting new
+alerts and spends up to five seconds delivering the ones it is already holding.
 
 Logs go to stderr. `text` is readable at a terminal and in `journalctl`; set
 `json` where something parses the output, such as a container shipping to Loki
@@ -174,6 +187,6 @@ config/             Runtime data files (gitignored except example.*)
 internal/config/    Config struct and env/flag parsing
 internal/monitor/   Core polling logic — fetches /products.json and diffs variant state
 internal/proxy/     ProxyManager — reads proxies.txt and rotates entries per request
-internal/webhook/   Webhook sender — formats and POSTs embeds on new variant or restock
+internal/webhook/   Alert delivery — recognises a webhook from its URL, queues, paces, and retries
 internal/utils/     Shared types mirroring the Shopify products API response
 ```

@@ -45,7 +45,7 @@ authentication, no UI, and configuration is files on disk rather than an API.
 
 - Detect a restock on any product in a monitored catalogue, not merely recent
   ones.
-- Report a detected change to the store's configured Discord webhook.
+- Report a detected change to every webhook the store names.
 - Survive transient failures — proxy timeouts, store rate limits, network
   blips — without operator intervention.
 - Let the operator spend polling effort unevenly, so a store that restocks fast
@@ -59,8 +59,9 @@ authentication, no UI, and configuration is files on disk rather than an API.
   rate-limit behaviour are all Shopify-specific.
 - **Historical storage.** State is the current baseline in memory. Restarting
   re-baselines and deliberately forgets.
-- **Alert routing beyond a webhook per store.** No filtering rules, no
-  subscriptions, no per-product targeting.
+- **Alert routing.** Every change found in a store goes to every webhook that
+  store names. No filtering rules, no subscriptions, no per-product or
+  per-event-kind targeting.
 - **Multi-operator use.** Credentials sit in plain files; the trust boundary is
   the host.
 
@@ -78,7 +79,8 @@ authentication, no UI, and configuration is files on disk rather than an API.
 ## System Design
 
 One goroutine per store, each looping independently over the same shared proxy
-pool. Nothing is shared between stores except that pool and the process.
+pool. Stores share that pool, the process, and — where two of them name the
+same webhook — the queue and rate-limit budget belonging to that webhook.
 
 ```mermaid
 flowchart TD
@@ -86,7 +88,7 @@ flowchart TD
     MAIN --> ACQ[catalog-acquisition<br/>paged reads, proxy rotation]
     ACQ --> POOL[(proxy pool<br/>shared, rotated per request)]
     ACQ --> DET[change-detection<br/>baseline diff, event classification]
-    DET --> NOTIFY[notification<br/>Discord webhook per store]
+    DET --> NOTIFY[notification<br/>webhooks per store, queued and paced]
     POOL -.->|one address per request| SHOPIFY[(Shopify<br/>rate limits per client address<br/>across all stores)]
     ACQ --> SHOPIFY
 ```
@@ -185,5 +187,5 @@ Falsification signals — conditions under which this is judged broken:
 - Shopify storefront catalogue endpoint: `/products.json`, with `limit`
   (maximum 250) and `page`. Behaviour relied on here is documented in
   `docs/intent/catalog-acquisition/catalog-acquisition-design.md`.
-- Discord webhook execution and its per-webhook rate limiting, in
-  `docs/intent/notification/notification-design.md`.
+- Webhook delivery, its per-webhook rate limiting, and how a destination is
+  recognised, in `docs/intent/notification/notification-design.md`.

@@ -1,23 +1,23 @@
 package monitor
 
-import "github.com/chewycrunch/shopify-monitor/internal/utils"
+import (
+	"time"
 
-// EventKind is the sort of change a watch crawl found.
-type EventKind int
-
-const (
-	// NewVariant is a variant observed for the first time, already available.
-	NewVariant EventKind = iota + 1
-	// Restock is a known variant that was unavailable and is now available.
-	Restock
+	"github.com/chewycrunch/shopify-monitor/internal/utils"
 )
 
-// Event is a reportable change, carrying what a notification needs to say.
-type Event struct {
-	Kind    EventKind
-	Product utils.Product
-	Variant utils.Variant
-}
+// Event and its kinds are defined in utils so that the segment delivering an
+// event and the segment producing it share the type without importing each
+// other. These aliases keep the classification code reading in its own terms.
+type (
+	EventKind = utils.EventKind
+	Event     = utils.Event
+)
+
+const (
+	NewVariant = utils.NewVariant
+	Restock    = utils.Restock
+)
 
 // recordBaseline establishes the store's availability record from its first
 // crawl and returns the number of variants recorded.
@@ -55,6 +55,10 @@ func (m *Monitor) recordBaseline(products []utils.Product) int {
 func (m *Monitor) detectChanges(products []utils.Product) []Event {
 	var events []Event
 
+	// Stamped here rather than at delivery: a queued alert may go out long
+	// after the stock moved, and the operator is acting on when it moved.
+	now := time.Now().UTC()
+
 	for _, product := range products {
 		for _, variant := range product.Variants {
 			previous, recorded := m.VariantMap[variant.ID]
@@ -66,9 +70,9 @@ func (m *Monitor) detectChanges(products []utils.Product) []Event {
 			// only so the next restock can be recognised.
 			switch {
 			case !recorded && variant.Available:
-				events = append(events, Event{Kind: NewVariant, Product: product, Variant: variant})
+				events = append(events, Event{Kind: NewVariant, Product: product, Variant: variant, Store: m.Url, DetectedAt: now})
 			case recorded && !previous && variant.Available:
-				events = append(events, Event{Kind: Restock, Product: product, Variant: variant})
+				events = append(events, Event{Kind: Restock, Product: product, Variant: variant, Store: m.Url, DetectedAt: now})
 			}
 		}
 	}

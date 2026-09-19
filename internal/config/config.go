@@ -30,6 +30,10 @@ type Config struct {
 
 	// Application performance
 	PageWorkers int `conf:"default:5,help:catalog pages fetched at once; each goes through its own proxy"`
+
+	// Alert delivery. Global rather than per store because one webhook is
+	// shared by every store naming it.
+	WebhookMinInterval int `conf:"default:0,help:smallest gap in milliseconds between requests to one webhook; 0 paces by the allowance the webhook itself reports"`
 }
 
 // aliases maps former environment variable names to current ones.
