@@ -142,4 +142,12 @@ func TestEventsIdentifyTheProductAndVariant(t *testing.T) {
 	if e.Variant.ID != 7 || e.Variant.Title != "Size 10" {
 		t.Errorf("event variant = %d/%q, want the observed variant", e.Variant.ID, e.Variant.Title)
 	}
+	if e.Store != m.Url {
+		t.Errorf("event store = %q, want %q; a destination shared by several stores has none to infer", e.Store, m.Url)
+	}
+	// A queued event may be delivered long after the stock moved, so the alert
+	// has to carry when it was detected rather than when it was sent.
+	if e.DetectedAt.IsZero() {
+		t.Error("event carries no detection time")
+	}
 }

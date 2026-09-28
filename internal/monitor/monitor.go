@@ -15,14 +15,21 @@ import (
 
 	"github.com/chewycrunch/shopify-monitor/internal/proxy"
 	"github.com/chewycrunch/shopify-monitor/internal/utils"
-	"github.com/chewycrunch/shopify-monitor/internal/webhook"
 )
+
+// A Notifier accepts a detected change for delivery. It is declared here, where
+// it is consumed, so this package needs nothing from the one that delivers.
+//
+// Send returns whether the event was accepted, not whether it arrived.
+type Notifier interface {
+	Send(ctx context.Context, e utils.Event) error
+}
 
 type Monitor struct {
 	Url        string
-	WebhookUrl string
 	VariantMap map[int64]bool
 
+	notify      Notifier
 	proxyBroker *proxy.ProxyManager
 	pageWorkers int
 	maxProducts int
@@ -39,14 +46,14 @@ func normalizeBaseURL(raw string) string {
 	return strings.TrimRight(strings.TrimSpace(raw), "/")
 }
 
-// Instanciates a new monitor given a store, webhook, and proxy manager instance
-func NewMonitor(url string, webhookUrl string, pb *proxy.ProxyManager, pageWorkers, maxProducts int) *Monitor {
+// NewMonitor builds a monitor for one store, reporting its changes to notify.
+func NewMonitor(url string, notify Notifier, pb *proxy.ProxyManager, pageWorkers, maxProducts int) *Monitor {
 	url = normalizeBaseURL(url)
 
 	// Bound once here so every line this monitor logs carries its site.
 	log := slog.Default().With("site", url)
 	log.Info("creating monitor")
-	return &Monitor{Url: url, WebhookUrl: webhookUrl, VariantMap: make(map[int64]bool), proxyBroker: pb, pageWorkers: pageWorkers, maxProducts: maxProducts, log: log}
+	return &Monitor{Url: url, VariantMap: make(map[int64]bool), notify: notify, proxyBroker: pb, pageWorkers: pageWorkers, maxProducts: maxProducts, log: log}
 }
 
 // Initialize variants for the monitor
@@ -120,7 +127,7 @@ func (m *Monitor) StartWatching(ctx context.Context, duration time.Duration) err
 		}
 
 		for _, event := range m.detectChanges(res) {
-			m.report(event)
+			m.report(ctx, event)
 		}
 
 		if !sleepCtx(ctx, duration) {
@@ -129,10 +136,15 @@ func (m *Monitor) StartWatching(ctx context.Context, duration time.Duration) err
 	}
 }
 
-// report announces a detected change.
+// report announces a detected change, to the log and to the store's webhooks.
 //
-// @spec DET-EVENT-006
-func (m *Monitor) report(e Event) {
+// A destination that will not take the event is logged and stepped over. This
+// store keeps polling either way: a monitor that stopped watching because its
+// alerts had nowhere to go would also stop producing the logs that are the only
+// remaining evidence of what it saw.
+//
+// @spec DET-EVENT-006, NOTIFY-QUEUE-005, NOTIFY-FAIL-007
+func (m *Monitor) report(ctx context.Context, e Event) {
 	switch e.Kind {
 	case NewVariant:
 		m.log.Info("new variant",
@@ -141,7 +153,6 @@ func (m *Monitor) report(e Event) {
 			"variant_id", e.Variant.ID,
 			"handle", e.Product.Handle,
 		)
-		webhook.WebhookMaster.SendNewVariant()
 	case Restock:
 		m.log.Info("restock",
 			"product", e.Product.Title,
@@ -149,7 +160,16 @@ func (m *Monitor) report(e Event) {
 			"variant_id", e.Variant.ID,
 			"handle", e.Product.Handle,
 		)
-		webhook.WebhookMaster.SendVariantAvail()
+	}
+
+	if m.notify == nil {
+		return
+	}
+	if err := m.notify.Send(ctx, e); err != nil {
+		m.log.Warn("alert was not accepted for delivery",
+			"err", err,
+			"variant_id", e.Variant.ID,
+		)
 	}
 }
 

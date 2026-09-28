@@ -7,13 +7,16 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ardanlabs/conf/v3"
 	"github.com/chewycrunch/shopify-monitor/internal/config"
 	"github.com/chewycrunch/shopify-monitor/internal/monitor"
 	"github.com/chewycrunch/shopify-monitor/internal/proxy"
+	"github.com/chewycrunch/shopify-monitor/internal/webhook"
 )
 
 // Fetch variants and load them into the map
@@ -22,9 +25,13 @@ import (
 // If so, send a webhook to the webhook URL
 var wg sync.WaitGroup
 
+// shutdownDrain bounds how long a graceful shutdown spends delivering the
+// alerts it is already holding.
+const shutdownDrain = 5 * time.Second
+
 // Spawns one monitor goroutine per store in cfg.WebsitesFile and returns; the
 // goroutines it starts are tracked on wg.
-func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Config, proxyManager *proxy.ProxyManager) error {
+func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Config, proxyManager *proxy.ProxyManager, destinations *webhook.Registry) error {
 	file, err := os.Open(cfg.WebsitesFile)
 	if err != nil {
 		return fmt.Errorf("open websites file: %w", err)
@@ -36,12 +43,20 @@ func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Con
 		return err
 	}
 
+	// Resolved before any goroutine starts: a webhook URL nothing can deliver to
+	// is a configuration that cannot work, and the moment to say so is before
+	// the monitor is polling rather than during the drop it was deployed for.
 	for _, store := range stores {
+		dest, err := destinationFor(cfg, destinations, store)
+		if err != nil {
+			return err
+		}
+
 		wg.Add(1)
 
 		go func() {
 			defer wg.Done()
-			m := monitor.NewMonitor(store.URL, store.WebhookURL, proxyManager, cfg.PageWorkers, store.MaxProducts)
+			m := monitor.NewMonitor(store.URL, dest, proxyManager, cfg.PageWorkers, store.MaxProducts)
 
 			// Retry rather than give up: the baseline fetch goes through the
 			// same rotating proxies as every later one, so a single timeout
@@ -64,13 +79,31 @@ func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Con
 				}
 			}
 
-			if err := m.StartWatching(ctx, store.Delay); err != nil {
+			// A cancelled context is the shutdown working, not a fault.
+			if err := m.StartWatching(ctx, store.Delay); err != nil && !errors.Is(err, context.Canceled) {
 				slog.Error("stopped watching", "site", m.Url, "err", err)
 			}
 		}()
 	}
 
 	return nil
+}
+
+// destinationFor resolves where one store's alerts go, naming the row in the
+// stores file when a webhook URL matches no destination this program can reach.
+func destinationFor(cfg config.Config, destinations *webhook.Registry, store config.Store) (webhook.Destination, error) {
+	urls := []string{store.WebhookURL}
+
+	dests := make([]webhook.Destination, 0, len(urls))
+	for _, u := range urls {
+		d, err := destinations.For(u)
+		if err != nil {
+			return nil, fmt.Errorf("%s line %d: %w", cfg.WebsitesFile, store.Line, err)
+		}
+		dests = append(dests, d)
+	}
+
+	return webhook.Fanout(dests...)
 }
 
 // loadProxies reads path into a ProxyManager. A missing file yields an empty
@@ -164,11 +197,34 @@ func run() error {
 		return err
 	}
 
-	if err := startMonitorService(context.Background(), &wg, cfg, shopifyProxyBroker); err != nil {
+	// One registry for the process: a webhook's limits are imposed per webhook,
+	// so two stores naming the same one have to share the queue and the pacing
+	// that keeps them inside it.
+	destinations := webhook.NewRegistry(webhook.Options{
+		MinInterval: time.Duration(cfg.WebhookMinInterval) * time.Millisecond,
+		Logger:      slog.Default(),
+	})
+
+	// Without this the process could only ever be killed, and alerts detected in
+	// the final cycle would go out nowhere.
+	ctx, stopListening := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopListening()
+
+	if err := startMonitorService(ctx, &wg, cfg, shopifyProxyBroker, destinations); err != nil {
 		return err
 	}
 
 	wg.Wait()
+
+	// The events still queued are the most recently detected ones, so they are
+	// worth a bounded wait. Bounded because an unresponsive webhook must not be
+	// able to keep the process alive.
+	drain, cancelDrain := context.WithTimeout(context.Background(), shutdownDrain)
+	defer cancelDrain()
+
+	if err := destinations.Shutdown(drain); err != nil {
+		slog.Warn("gave up delivering some alerts before exit", "err", err)
+	}
 
 	return nil
 }
