@@ -29,10 +29,10 @@ var wg sync.WaitGroup
 // alerts it is already holding.
 const shutdownDrain = 5 * time.Second
 
-// Spawns one monitor goroutine per store in cfg.WebsitesFile and returns; the
+// Spawns one monitor goroutine per store in cfg.StoresFile and returns; the
 // goroutines it starts are tracked on wg.
 func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Config, proxyManager *proxy.ProxyManager, destinations *webhook.Registry) error {
-	file, err := os.Open(cfg.WebsitesFile)
+	file, err := os.Open(cfg.StoresFile)
 	if err != nil {
 		return fmt.Errorf("open websites file: %w", err)
 	}
@@ -92,13 +92,13 @@ func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Con
 // destinationFor resolves where one store's alerts go, naming the row in the
 // stores file when a webhook URL matches no destination this program can reach.
 func destinationFor(cfg config.Config, destinations *webhook.Registry, store config.Store) (webhook.Destination, error) {
-	urls := []string{store.WebhookURL}
+	urls := store.WebhookURLs
 
 	dests := make([]webhook.Destination, 0, len(urls))
 	for _, u := range urls {
 		d, err := destinations.For(u)
 		if err != nil {
-			return nil, fmt.Errorf("%s line %d: %w", cfg.WebsitesFile, store.Line, err)
+			return nil, fmt.Errorf("%s line %d: %w", cfg.StoresFile, store.Line, err)
 		}
 		dests = append(dests, d)
 	}

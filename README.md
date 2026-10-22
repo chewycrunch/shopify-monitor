@@ -5,7 +5,7 @@ Concurrent Go monitor for Shopify stores. Polls `/products.json`, diffs variant 
 ## Quick Start
 
 ```bash
-cp config/example.websites.csv config/websites.csv   # then add your stores
+cp config/example.stores.toml config/stores.toml   # then add your stores
 go run main.go
 ```
 
@@ -32,7 +32,7 @@ precedence over `.env` either way.
 | ------------------------------ | ------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `MONITOR_DEFAULT_DELAY`        | `--default-delay`        | `5000`                | Rest between crawls in ms, for stores that set no `delay` of their own                                             |
 | `MONITOR_DEFAULT_MAX_PRODUCTS` | `--default-max-products` | `6000`                | Newest products crawled, for stores that set no `max_products` of their own; `0` for the whole reachable catalogue |
-| `MONITOR_WEBSITES_FILE`        | `--websites-file`        | `config/websites.csv` | CSV of store URL and webhook URL pairs                                                                             |
+| `MONITOR_STORES_FILE`          | `--stores-file`          | `config/stores.toml`  | TOML file naming each monitored store and the webhooks its alerts go to                                            |
 | `MONITOR_PROXIES_FILE`         | `--proxies-file`         | `config/proxies.txt`  | One proxy per line; optional                                                                                       |
 | `MONITOR_LOG_FORMAT`           | `--log-format`           | `text`                | `text` or `json`                                                                                                   |
 | `MONITOR_LOG_LEVEL`            | `--log-level`            | `info`                | `debug`, `info`, `warn`, or `error`                                                                                |
@@ -69,32 +69,65 @@ binary from elsewhere.
 
 ---
 
-### config/websites.csv — Stores
+### config/stores.toml — Stores
 
-```csv
-url,webhook,delay,max_products
-https://kith.com,https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN,300000,6000
-https://smallstore.com,https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN,60000,200
+```toml
+[[store]]
+url = "https://kith.com"
+webhooks = ["https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN"]
+delay = 300000
+max_products = 6000
+
+# A store can report to several channels at once.
+[[store]]
+url = "https://smallstore.com"
+webhooks = [
+  "https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN",
+  "https://discord.com/api/webhooks/OTHER_ID/OTHER_TOKEN",
+]
+delay = 60000
+max_products = 200
 ```
 
-| Column         | Description                                                                                                                   |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `url`          | Shopify store base URL — no trailing slash, no `/products.json`                                                               |
-| `webhook`      | Discord webhook URL to receive alerts for that store                                                                          |
-| `delay`        | Optional. Milliseconds to rest between crawls; falls back to `MONITOR_DEFAULT_DELAY`                                          |
-| `max_products` | Optional. Newest products to crawl; `0` for the whole reachable catalogue, blank falls back to `MONITOR_DEFAULT_MAX_PRODUCTS` |
+| Field          | Description                                                                                                                      |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `url`          | Shopify store base URL — no trailing slash, no `/products.json`                                                                  |
+| `webhooks`     | One or more Discord webhook URLs to receive this store's alerts                                                                  |
+| `delay`        | Optional. Milliseconds to rest between crawls; falls back to `MONITOR_DEFAULT_DELAY`                                             |
+| `max_products` | Optional. Newest products to crawl; `0` for the whole reachable catalogue, omitted falls back to `MONITOR_DEFAULT_MAX_PRODUCTS`  |
 
-Columns are matched by header name, so order does not matter and the optional
-ones can be left out entirely. Add one row per store; each runs in its own
-goroutine.
+One `[[store]]` table per store; each runs in its own goroutine. Optional fields
+can be left out entirely. A store listing several webhooks sends every one of
+its alerts to all of them — the same URL twice still sends one alert.
 
-The file is validated at startup and a problem is fatal, naming the line as your
-editor numbers it. `url` and `webhook` must both be present and absolute `http`
-or `https` URLs, `delay` must be a positive whole number, `max_products` zero or
-positive, and the file must contain at least one store. Nothing is contacted to
-check it — a store or webhook being briefly down will not stop the monitor
-starting. A store with a blank `webhook` is refused rather than run, because one
-that finds restocks and reports them nowhere looks exactly like a healthy one.
+Because the file takes comments, a store can be paused by commenting it out
+rather than deleting it and keeping it somewhere else:
+
+```toml
+# Paused for the season.
+# [[store]]
+# url = "https://smallstore.com"
+# webhooks = ["https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN"]
+```
+
+The file is validated at startup and a problem is fatal, naming the line your
+editor shows for the store that caused it. `url` must be an absolute `http` or
+`https` URL, `webhooks` must list at least one and every entry must be an
+absolute `http` or `https` URL, `delay` must be a positive whole number,
+`max_products` zero or positive, unrecognised field and table names are refused
+rather than ignored, and the file must contain at least one store. Nothing is
+contacted to check any of it — a store or webhook being briefly down will not
+stop the monitor starting.
+
+Validation is strict on purpose, including for a store whose other webhooks are
+fine. A store that finds restocks and reports them nowhere, or to fewer places
+than you asked for, looks exactly like a healthy one.
+
+> **Upgrading from 1.x?** The stores file was previously
+> `config/websites.csv`, with a single `webhook` column. Convert each row to a
+> `[[store]]` table and wrap its webhook in a list. `MONITOR_WEBSITES_FILE` is
+> refused rather than ignored, and pointing `MONITOR_STORES_FILE` at an old
+> comma-separated file reports it as the retired format.
 
 ### Choosing `max_products`
 
@@ -166,11 +199,11 @@ Three things worth knowing either way:
 
 - **The mount target must be `/app/config`.** That is the image's `WORKDIR`, and
   it is what makes the relative path defaults resolve in a container exactly as
-  they do locally. Mount somewhere else and you must set `MONITOR_WEBSITES_FILE`
+  they do locally. Mount somewhere else and you must set `MONITOR_STORES_FILE`
   and `MONITOR_PROXIES_FILE` to match.
 - **Create `config/` before the first run.** If it does not exist, Docker
   silently creates it empty rather than failing, and the monitor exits with
-  `open config/websites.csv: no such file or directory`.
+  `open config/stores.toml: no such file or directory`.
 - **Cap the logs.** Output is one JSON object per line on stderr, forever; an
   uncapped long-running poller will eventually fill the host disk.
 

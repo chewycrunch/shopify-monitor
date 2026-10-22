@@ -1,3 +1,5 @@
+github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
+github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/ardanlabs/conf/v3 v3.13.0 h1:XKQXX35fFq/jencPu19xh0a6NPMT4NrpcRP/F9x7ejY=
 github.com/ardanlabs/conf/v3 v3.13.0/go.mod h1:XlL9P0quWP4m1weOVFmlezabinbZLI05niDof/+Ochk=
 github.com/google/go-cmp v0.3.1 h1:Xye71clBPdm5HgqGwUkwhbynsUJZhDbS20FvLhQ2izg=
