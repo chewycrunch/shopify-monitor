@@ -21,8 +21,8 @@ type Config struct {
 	DefaultMaxProducts int `conf:"default:6000,help:newest products crawled for stores that set no max_products of their own; 0 for the whole reachable catalogue"`
 
 	// Data files
-	WebsitesFile string `conf:"default:config/websites.csv,help:CSV of store URL and webhook URL pairs"`
-	ProxiesFile  string `conf:"default:config/proxies.txt,help:one proxy per line with optional basic auth; direct connections if absent"`
+	StoresFile  string `conf:"default:config/stores.toml,help:TOML file naming each monitored store and the webhooks its alerts go to"`
+	ProxiesFile string `conf:"default:config/proxies.txt,help:one proxy per line with optional basic auth; direct connections if absent"`
 
 	// Internal stuff
 	LogFormat string `conf:"default:text,help:log output format: text or json"`
@@ -38,8 +38,9 @@ type Config struct {
 
 // aliases maps former environment variable names to current ones.
 var aliases = map[string]string{
-	"MONITOR_DELAY":        "MONITOR_DEFAULT_DELAY",
-	"MONITOR_MAX_PRODUCTS": "MONITOR_DEFAULT_MAX_PRODUCTS",
+	"MONITOR_DELAY":         "MONITOR_DEFAULT_DELAY",
+	"MONITOR_MAX_PRODUCTS":  "MONITOR_DEFAULT_MAX_PRODUCTS",
+	"MONITOR_WEBSITES_FILE": "MONITOR_STORES_FILE",
 }
 
 // Load resolves the monitor configuration from environment variables and flags.

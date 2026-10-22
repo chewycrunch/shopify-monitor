@@ -1,0 +1,29 @@
+# Each [[store]] table is one monitored store.
+#
+# url           Shopify store base URL — no trailing slash, no /products.json
+# webhooks      One or more Discord webhook URLs to receive this store's alerts
+# delay         Optional. Milliseconds to rest between crawls.
+#               Falls back to MONITOR_DEFAULT_DELAY.
+# max_products  Optional. Newest products to crawl; 0 for the whole reachable
+#               catalogue. Falls back to MONITOR_DEFAULT_MAX_PRODUCTS.
+
+[[store]]
+url = "https://kith.com"
+webhooks = ["https://discord.com/api/webhooks/1234123412341234/abcdefgh"]
+delay = 300000
+max_products = 6000
+
+# A store can report to several channels at once.
+[[store]]
+url = "https://rsgoffroad.com"
+webhooks = [
+  "https://discord.com/api/webhooks/1234123412341234/abcdefgh",
+  "https://discord.com/api/webhooks/5678567856785678/ijklmnop",
+]
+delay = 60000
+max_products = 200
+
+# Commented out rather than deleted, so it can come back without being retyped.
+# [[store]]
+# url = "https://smallstore.com"
+# webhooks = ["https://discord.com/api/webhooks/1234123412341234/abcdefgh"]
