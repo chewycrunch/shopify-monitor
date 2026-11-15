@@ -13,7 +13,7 @@ vars:
   REGISTRY: ghcr.io
   IMAGE: shopify-monitor
   REPO: '{{.REGISTRY}}/{{.OWNER}}/{{.IMAGE}}'
-  GOLANGCI_VERSION: v2.12.2
+  GOLANGCI_VERSION: v2.15.0
   PLATFORMS: linux/amd64,linux/arm64
   BUILD:
     sh: git rev-parse --short HEAD
@@ -37,8 +37,8 @@ tasks:
     # skips, so an existing config would either fail the task or need `|| true`
     # papering over a real error.
     cmds:
-      - for f in websites.csv proxies.txt; do [ -f "config/$f" ] || cp "config/example.$f" "config/$f"; done
-      - echo "config/ ready — add your stores to config/websites.csv"
+      - for f in stores.toml proxies.txt; do [ -f "config/$f" ] || cp "config/example.$f" "config/$f"; done
+      - echo "config/ ready — add your stores to config/stores.toml"
 
   run:
     desc: Run against config/ without building an image

@@ -20,6 +20,14 @@ market, so it can persist for as long as nobody thinks to check.
 Configuration that cannot possibly work is therefore refused before the first
 crawl, naming the file and line so the fix is obvious.
 
+**A static error is fatal; a dynamic failure degrades.** Anything knowable from
+the file alone stops startup, because the operator is editing that file and an
+error on their terminal is the cheapest feedback there is. Anything discoverable
+only by trying — a webhook deleted, revoked, or unreachable — is isolated at the
+moment it happens and the monitor keeps running. The two are not in tension:
+they are the same judgement applied to evidence that arrives at different times,
+and conflating them is how a config mistake becomes permanent silence.
+
 ## Where settings come from
 
 Settings are environment variables and flags, parsed together so each has both
@@ -102,6 +110,19 @@ included because a monitor with nothing to monitor otherwise starts, finds no
 work, and exits successfully — which reads as a crash to anyone watching a
 restart policy, and as silence to anyone watching Discord.
 
+Several of these match the same file, so the order they are checked in decides
+which one the operator is told about. The retired format is recognised before
+anything is parsed; a parse fault is reported only for a file that cannot be
+read as TOML at all; an unrecognised field or table name is reported before any
+conclusion is drawn from its absence; and having no stores is concluded last.
+A mistyped `[[stores]]` is the case that order exists for: every other ordering
+reports it as an empty file, which describes the symptom and hides the cause.
+
+A store with one unusable webhook among several is refused along with the rest.
+Keeping that store on its valid entries would mean alerting fewer places than
+the operator asked for, with a log line as the only record — the failure this
+segment exists to prevent, reached by being helpful.
+
 Validation here is deliberately shallow, and deliberately ignorant of what a
 webhook URL addresses. That a URL is well-formed is checkable before any network
 call; that it points at a real store is not knowable without asking, and asking
@@ -110,7 +131,7 @@ well-formed URL is one this program can actually deliver to is a question for
 the segment that delivers — it is refused at startup too, using the line number
 this segment records against each store.
 
-### Recognising the superseded format
+### Recognising the retired format
 
 A file whose first meaningful line is a comma-separated header is reported as
 the format it is, rather than as a TOML syntax error. The stores file is the one
@@ -142,9 +163,10 @@ so there is nothing for a structured format to express.
 | An omitted optional field | Falls back to the global default | Error | Omission is how the format expresses "not set here", and requiring every store to state every field defeats having defaults. |
 | An unparseable optional value | Error | Fall back to the default | A wrong value is a mistake in progress. Substituting the default hides it and produces behaviour the operator did not ask for. |
 | A store with no destination | Refuses to start | Warn and poll anyway | A store that detects restocks and reports them nowhere looks identical to a healthy one. |
+| One unusable webhook among several | Refuses to start | Drop that entry and run on the rest; drop the whole store | A malformed URL is knowable from the file while the operator is editing it, so the error costs them the seconds it takes to read. Dropping it silently costs them a destination permanently, with nothing to notice. A delivery that fails at runtime is a different case and is isolated rather than fatal. |
 | A stores file with no stores | Refuses to start | Start and idle; start and exit | With nothing to monitor the process exits successfully and immediately, which reads as a crash loop under a restart policy. |
 | Validation depth | Shape only, no network | Verify the store and webhook respond | Reachability is not knowable without asking, and a transient outage at startup should not prevent booting. |
-| The superseded format | Detected and named | Parsed as well, for a transition period; left to fail as a syntax error | Supporting both indefinitely doubles the parse paths for a population of one operator. Failing with a syntax error tells that operator nothing about what actually happened. |
+| The retired format | Recognised and named, never parsed | Parsed as well, for a transition period; left to fail as a syntax error | Reading both indefinitely doubles the parse paths for a population of one operator. Failing with a syntax error tells that operator nothing about what actually happened. Recognising a format is not supporting it. |
 
 ## Open Questions & Future Decisions
 
@@ -157,8 +179,11 @@ so there is nothing for a structured format to express.
    restarting the process, which discards every store's availability record and
    re-baselines all of them.
 3. **A store's webhooks are not checked for duplicates here.** The same URL
-   listed twice is harmless — delivery collapses it to one alert — so it is not
-   worth refusing, but neither is it reported.
+   listed twice is harmless because delivery collapses it to one alert — see
+   `NOTIFY-DEST-006` — so it is not worth refusing, but neither is it reported.
+   This segment is leaning on that behaviour rather than enforcing anything: if
+   delivery stopped collapsing duplicates, a doubled entry would quietly become
+   a doubled alert.
 
 ## References
 
