@@ -34,7 +34,7 @@ const shutdownDrain = 5 * time.Second
 func startMonitorService(ctx context.Context, wg *sync.WaitGroup, cfg config.Config, proxyManager *proxy.ProxyManager, destinations *webhook.Registry) error {
 	file, err := os.Open(cfg.StoresFile)
 	if err != nil {
-		return fmt.Errorf("open websites file: %w", err)
+		return fmt.Errorf("open stores file: %w", err)
 	}
 	defer file.Close()
 
